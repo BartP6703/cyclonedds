@@ -21,6 +21,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "dds/ddsrt/heap.h"
+
 static const size_t ofst = sizeof(size_t);
 
 void *ddsrt_malloc_s(size_t size)
