@@ -22,6 +22,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
+option(WITH_FREERTOS "Build for FreeRTOS" OFF)
+
 # By default the Java-based components get built, but make it possible to disable that: if only the
 # core library is required, there's no need to build them, and that in turn eliminates the Maven and
 # JDK dependency.
@@ -166,6 +168,14 @@ if(${CMAKE_GENERATOR} STREQUAL "Xcode")
   set (CMAKE_XCODE_ATTRIBUTE_CLANG_WARN_DOCUMENTATION_COMMENTS YES)
   set (CMAKE_XCODE_ATTRIBUTE_GCC_WARN_ABOUT_MISSING_PROTOTYPES YES)
 endif()
+
+if(WITH_FREERTOS)
+  message(STATUS "WITH_FREERTOS set")
+else ()
+  message(STATUS "WITH_FREERTOS not set")
+endif()
+
+message(STATUS "CMAKE_TOOLCHAIN_FILE:${CMAKE_TOOLCHAIN_FILE}")
 
 # Make it easy to enable one of Clang's/gcc's analyzers, and default to using
 # the address sanitizer for ordinary debug builds; gcc is giving some grief on
