@@ -85,7 +85,12 @@ dds_return_t
 ddsrt_getrusage_anythread(ddsrt_thread_list_id_t tid, ddsrt_rusage_t *__restrict usage)
 {
   assert(usage != NULL);
+#if DDSRT_WITH_FREERTOS
+  (void)tid;
+  return rusage_thread(usage);
+#else
   return rusage_thread(tid, usage);
+#endif
 }
 
 dds_return_t
@@ -97,7 +102,7 @@ ddsrt_getrusage(enum ddsrt_getrusage_who who, ddsrt_rusage_t *usage)
   assert(usage != NULL);
 
   if (who == DDSRT_RUSAGE_THREAD) {
-    rc = rusage_thread_anythread(xTaskGetCurrentTaskHandle(), usage);
+    rc = ddsrt_getrusage_anythread((ddsrt_thread_list_id_t)ddsrt_gettid(), usage);
   } else {
     rc = rusage_self(usage);
   }
