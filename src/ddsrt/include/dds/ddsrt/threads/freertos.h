@@ -28,6 +28,7 @@ typedef struct {
 
 typedef UBaseType_t ddsrt_tid_t;
 #define PRIdTID "lu"
+typedef long int ddsrt_thread_list_id_t;
 
 #if defined(__cplusplus)
 }
