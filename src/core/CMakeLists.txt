@@ -20,9 +20,9 @@ FUNCTION(PREPEND var prefix)
 ENDFUNCTION(PREPEND)
 
 if (BUILD_SHARED_LIBS OR NOT DEFINED BUILD_SHARED_LIBS)
-  add_library(ddsc SHARED)
+  add_library(ddsc STATIC)
 else()
-  add_library(ddsc)
+  add_library(ddsc STATIC)
 endif()
 
 add_definitions(-DDDSI_INCLUDE_NETWORK_PARTITIONS -DDDSI_INCLUDE_SSM)
@@ -81,7 +81,7 @@ install(
 )
 
 if(BUILD_IDLC)
-  add_subdirectory(xtests)
+  #add_subdirectory(xtests)
 endif()
 
 if(BUILD_DOCS)
