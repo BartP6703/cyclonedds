@@ -124,3 +124,27 @@ install(
   LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
 
+find_package(Git QUIET)
+message(STATUS "GIT_FOUND:${GIT_FOUND}")
+message(STATUS "GIT_EXECUTABLE:${GIT_EXECUTABLE}")
+
+if (GIT_FOUND)
+	message(STATUS "git found")
+	if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/FreeRTOS-Sim/.git")
+		message(STATUS "\"${CMAKE_CURRENT_LIST_DIR}/FreeRTOS-Sim/.git\" exists")
+		execute_process(
+			COMMAND ${GIT_EXECUTABLE} status
+			WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/FreeRTOS-Sim
+			RESULT_VARIABLE GIT_RESULT)
+		message(STATUS "git returned ${GIT_RESULT}")
+	else()
+		message(STATUS "\"${CMAKE_CURRENT_LIST_DIR}/FreeRTOS-Sim/.git\" does not exist")
+		execute_process(
+			COMMAND ${GIT_EXECUTABLE} clone https://github.com/shlinym/FreeRTOS-Sim.git
+			WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+			RESULT_VARIABLE GIT_RESULT)
+		message(STATUS "git returned ${GIT_RESULT}")
+	endif()
+else()
+	message(STATUS "git not found")
+endif()
