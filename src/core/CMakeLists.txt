@@ -81,7 +81,7 @@ install(
 )
 
 if(BUILD_IDLC)
-  #add_subdirectory(xtests)
+  add_subdirectory(xtests)
 endif()
 
 if(BUILD_DOCS)
