@@ -163,12 +163,3 @@ main(int argc, char *argv[])
 
   return EX_SOFTWARE;
 }
-
-#if 1
-int real_main(int argc, char *argv[])
-{
-	(void)argc;
-	(void)argv;
-	return 0;
-}
-#endif
