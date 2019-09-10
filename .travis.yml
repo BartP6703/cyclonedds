@@ -190,6 +190,8 @@ script:
             -DWITH_FREERTOS=on
             -G "${GENERATOR}" ..;
     else
+      export CC=gcc-8
+      export CXX=g++-8
       cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
             -DUSE_SANITIZER=${ASAN}
