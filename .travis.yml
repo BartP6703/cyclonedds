@@ -180,6 +180,8 @@ script:
   - cd build
   - conan install -b missing -s arch=${ARCH} -s build_type=${BUILD_TYPE} ..
   - if [ "${FREERTOS}" != "NO" ]; then
+      export CC=gcc-8;
+      export CXX=g++-8;
       cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
             -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
