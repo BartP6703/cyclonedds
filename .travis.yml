@@ -174,7 +174,7 @@ script:
       cd build;
       cmake -DCMAKE_INSTALL_PREFIX=$(pwd)/install ..;
       cmake --build . --target install;
-      cd ../../..
+      cd ../../..;
     fi
   - mkdir build
   - cd build
@@ -188,7 +188,7 @@ script:
             -DBUILD_TESTING=on
             -DWERROR=on
             -DWITH_FREERTOS=on
-            -G "${GENERATOR}" ..
+            -G "${GENERATOR}" ..;
     else
       cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
@@ -196,7 +196,7 @@ script:
             -DENABLE_SSL=${SSL}
             -DBUILD_TESTING=on
             -DWERROR=on
-            -G "${GENERATOR}" ..
+            -G "${GENERATOR}" ..;
     fi
   - case "${GENERATOR}" in
       "Unix Makefiles")
