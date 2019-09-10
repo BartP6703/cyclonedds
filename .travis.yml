@@ -180,8 +180,6 @@ script:
   - cd build
   - conan install -b missing -s arch=${ARCH} -s build_type=${BUILD_TYPE} ..
   - if [ "${FREERTOS}" != "NO" ]; then
-      export CC=gcc-8;
-      export CXX=g++-8;
       cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
             -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
@@ -191,9 +189,9 @@ script:
             -DWERROR=on
             -DWITH_FREERTOS=on
             -G "${GENERATOR}" ..;
+      cat CMakeFiles/CMakeError.log;
+      cat CMakeFiles/CMakeOutput.log;
     else
-      export CC=gcc-8;
-      export CXX=g++-8;
       cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
             -DUSE_SANITIZER=${ASAN}
@@ -201,6 +199,8 @@ script:
             -DBUILD_TESTING=on
             -DWERROR=on
             -G "${GENERATOR}" ..;
+      cat CMakeFiles/CMakeError.log;
+      cat CMakeFiles/CMakeOutput.log;
     fi
   - case "${GENERATOR}" in
       "Unix Makefiles")
