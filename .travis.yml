@@ -168,12 +168,12 @@ before_script:
 
 script:
   - if [ "${FREERTOS}" != "off" ]; then
-      cd ports/freertos-posix
-      git clone https://github.com/shlinym/FreeRTOS-Sim.git
-      mkdir build
-      cd build
-      cmake -DCMAKE_INSTALL_PREFIX=$(pwd)/install ..
-      cmake --build . --target install
+      cd ports/freertos-posix;
+      git clone https://github.com/shlinym/FreeRTOS-Sim.git;
+      mkdir build;
+      cd build;
+      cmake -DCMAKE_INSTALL_PREFIX=$(pwd)/install ..;
+      cmake --build . --target install;
       cd ../../..
     fi
   - mkdir build
