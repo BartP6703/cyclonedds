@@ -163,26 +163,15 @@ before_script:
   - conan remote add bincrafters https://api.bintray.com/conan/bincrafters/public-conan
 
 script:
-  - cd ports/freertos-posix
-  - git clone https://github.com/shlinym/FreeRTOS-Sim.git
-  - mkdir build
-  - cd build
-  - cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
-          -DCMAKE_INSTALL_PREFIX=$(pwd)/install
-          -G "${GENERATOR}" ..
-  - cmake --build . --target install
-  - cd ../../..
   - mkdir build
   - cd build
   - conan install -b missing -s arch=${ARCH} -s build_type=${BUILD_TYPE} ..
   - cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
-          -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake
           -DCMAKE_INSTALL_PREFIX=$(pwd)/install
           -DUSE_SANITIZER=${ASAN}
           -DENABLE_SSL=${SSL}
           -DBUILD_TESTING=on
           -DWERROR=on
-          -DWITH_FREERTOS=on
           -G "${GENERATOR}" ..
   - case "${GENERATOR}" in
       "Unix Makefiles")
