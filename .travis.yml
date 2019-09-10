@@ -163,7 +163,7 @@ before_script:
   - conan remote add bincrafters https://api.bintray.com/conan/bincrafters/public-conan
 
 script:
-  - cd cyclonedds/ports/freertos-posix
+  - cd ports/freertos-posix
   - git clone https://github.com/shlinym/FreeRTOS-Sim.git
   - mkdir build
   - cd build
