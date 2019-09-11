@@ -189,8 +189,6 @@ script:
             -DWERROR=on
             -DWITH_FREERTOS=on
             -G "${GENERATOR}" ..;
-      cat CMakeFiles/CMakeError.log;
-      cat CMakeFiles/CMakeOutput.log;
     else
       cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
@@ -199,9 +197,10 @@ script:
             -DBUILD_TESTING=on
             -DWERROR=on
             -G "${GENERATOR}" ..;
-      cat CMakeFiles/CMakeError.log;
-      cat CMakeFiles/CMakeOutput.log;
     fi
+  - echo "CMakeError.log:"; cat CMakeFiles/CMakeError.log
+  - echo "CMakeOutput.log:"; cat CMakeFiles/CMakeOutput.log
+
   - case "${GENERATOR}" in
       "Unix Makefiles")
         ${SCAN_BUILD} cmake --build . --config ${BUILD_TYPE} --target install -- -j 4
