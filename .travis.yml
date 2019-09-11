@@ -136,9 +136,9 @@ jobs:
     #  env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=YES, GENERATOR="Unix Makefiles", COVERITY_SCAN=true ]
     #  if: type = cron
     - <<: *linux_gcc8
-      env: [ ARCH=x86_64, ASAN=none, SSL=YES, FREERTOS=NO, GENERATOR="Unix Makefiles" ]
+      env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=YES, FREERTOS=NO, GENERATOR="Unix Makefiles" ]
     - <<: *linux_gcc8
-      env: [ ARCH=x86_64, ASAN=none, SSL=YES, FREERTOS=YES, GENERATOR="Unix Makefiles" ]
+      env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=YES, FREERTOS=YES, GENERATOR="Unix Makefiles" ]
     #- <<: *linux_gcc8
     #  env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=YES, GENERATOR="Unix Makefiles" ]
     #- <<: *linux_gcc8
@@ -179,6 +179,7 @@ script:
   - mkdir build
   - cd build
   - conan install -b missing -s arch=${ARCH} -s build_type=${BUILD_TYPE} ..
+  - echo "build_type:${BUILD_TYPE}"
   - if [ "${FREERTOS}" != "NO" ]; then
       cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
             -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake
