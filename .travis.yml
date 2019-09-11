@@ -187,7 +187,6 @@ script:
             -DUSE_SANITIZER=${ASAN}
             -DENABLE_SSL=${SSL}
             -DBUILD_TESTING=on
-            -DWERROR=on
             -DWITH_FREERTOS=on
             -G "${GENERATOR}" ..;
     else
@@ -196,7 +195,6 @@ script:
             -DUSE_SANITIZER=${ASAN}
             -DENABLE_SSL=${SSL}
             -DBUILD_TESTING=on
-            -DWERROR=on
             -G "${GENERATOR}" ..;
     fi
   - echo "CMakeError.log:"; cat CMakeFiles/CMakeError.log

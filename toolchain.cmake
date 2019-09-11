@@ -12,6 +12,7 @@ set(c_libraries "-lfreertos-sim -lfreertos-sim-loader -lpthread")
 set(cxx_libraries "${c_libraries}")
 
 set(defines "-Dmain=real_main")
+#set(defines "-Wl,-e,real_main")
 set(objects "${root}/loader/init.o ${root}/loader/tls.o")
 
 set(CMAKE_C_COMPILER "/usr/bin/gcc")
