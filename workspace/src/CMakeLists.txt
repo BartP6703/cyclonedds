@@ -10,3 +10,16 @@
 # SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 #
 cmake_minimum_required(VERSION 3.7)
+
+add_executable(FreeRTOSmain main.c)
+target_link_libraries(FreeRTOSmain CycloneDDS::ddsc)
+
+#if(WIN32)
+#  target_compile_definitions(pubsub PRIVATE _CRT_SECURE_NO_WARNINGS)
+#endif()
+
+install(
+  TARGETS FreeRTOSmain
+  DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  COMPONENT dev
+)
