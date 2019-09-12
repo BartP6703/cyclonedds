@@ -186,7 +186,6 @@ script:
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
             -DUSE_SANITIZER=${ASAN}
             -DENABLE_SSL=${SSL}
-            -DBUILD_TESTING=on
             -DWITH_FREERTOS=on
             -G "${GENERATOR}" ..;
     else
@@ -194,7 +193,6 @@ script:
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
             -DUSE_SANITIZER=${ASAN}
             -DENABLE_SSL=${SSL}
-            -DBUILD_TESTING=on
             -G "${GENERATOR}" ..;
     fi
   - echo "CMakeError.log:"; cat CMakeFiles/CMakeError.log
