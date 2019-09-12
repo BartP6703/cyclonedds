@@ -189,6 +189,14 @@ script:
             -DBUILD_TESTING=on
             -DWITH_FREERTOS=on
             -G "${GENERATOR}" ..;
+      cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
+            -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake
+            -DCMAKE_INSTALL_PREFIX=$(pwd)/install
+            -DUSE_SANITIZER=${ASAN}
+            -DENABLE_SSL=${SSL}
+            -DBUILD_TESTING=on
+            -DWITH_FREERTOS=on
+            -G "${GENERATOR}" ..;
     else
       cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
