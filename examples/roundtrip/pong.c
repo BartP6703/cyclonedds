@@ -65,7 +65,7 @@ static void data_available(dds_entity_t rd, void *arg)
   }
 }
 
-int main (int argc, char *argv[])
+int real_main (int argc, char *argv[])
 {
   dds_duration_t waitTimeout = DDS_INFINITY;
   unsigned int i;

@@ -4,7 +4,7 @@
 #include "semphr.h"
 #include "timers.h"
 
-int main(void)
+int real_main(void)
 {
 	vTaskStartScheduler();
 	while(1);

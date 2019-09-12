@@ -220,7 +220,7 @@ static void usage(void)
   exit(EXIT_FAILURE);
 }
 
-int main (int argc, char *argv[])
+int real_main (int argc, char *argv[])
 {
   uint32_t payloadSize = 0;
   uint64_t numSamples = 0;

@@ -1836,7 +1836,7 @@ static void set_mode (int xoptind, int xargc, char * const xargv[])
   }
 }
 
-int main (int argc, char *argv[])
+int real_main (int argc, char *argv[])
 {
   dds_entity_t ws;
   dds_return_t rc;

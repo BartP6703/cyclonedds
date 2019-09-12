@@ -516,7 +516,7 @@ static void usage (void)
   exit (1);
 }
 
-int main (int argc, char **argv)
+int real_main (int argc, char **argv)
 {
   FILE *fp = stdout;
   int flags = 0;
