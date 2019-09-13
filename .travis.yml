@@ -220,7 +220,7 @@ script:
           ${CMAKE_C_FLAGS}
           ${CMAKE_LINKER_FLAGS}
           -G "${GENERATOR}" ..
-  - cmake --build . --config ${BUILD_TYPE}
+  - cmake --build . --config ${BUILD_TYPE} || true
   - cd "${TRAVIS_BUILD_DIR}/build"
 
 after_success:
