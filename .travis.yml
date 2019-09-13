@@ -195,8 +195,8 @@ script:
             -DENABLE_SSL=${SSL}
             -G "${GENERATOR}" .. || true;
     fi
-  - echo "CMakeError.log:"; cat CMakeFiles/CMakeError.log || true
-  - echo "CMakeOutput.log:"; cat CMakeFiles/CMakeOutput.log || true
+  #- echo "CMakeError.log:"; cat CMakeFiles/CMakeError.log || true
+  #- echo "CMakeOutput.log:"; cat CMakeFiles/CMakeOutput.log || true
 
   - case "${GENERATOR}" in
       "Unix Makefiles")
@@ -222,6 +222,7 @@ script:
           -G "${GENERATOR}" ..
   - cmake --build . --config ${BUILD_TYPE} || true
   - cd "${TRAVIS_BUILD_DIR}/build"
+  - ls -l bin/* || true
 
 after_success:
   - *submit_to_coverity_scan
