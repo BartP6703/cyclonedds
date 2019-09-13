@@ -195,9 +195,6 @@ script:
             -DENABLE_SSL=${SSL}
             -G "${GENERATOR}" .. || true;
     fi
-  #- echo "CMakeError.log:"; cat CMakeFiles/CMakeError.log || true
-  #- echo "CMakeOutput.log:"; cat CMakeFiles/CMakeOutput.log || true
-
   - case "${GENERATOR}" in
       "Unix Makefiles")
         ${SCAN_BUILD} cmake --build . --config ${BUILD_TYPE} --target install -- -j 4
