@@ -187,16 +187,16 @@ script:
             -DUSE_SANITIZER=${ASAN}
             -DENABLE_SSL=${SSL}
             -DWITH_FREERTOS=on
-            -G "${GENERATOR}" ..;
+            -G "${GENERATOR}" .. || true;
     else
       cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
             -DUSE_SANITIZER=${ASAN}
             -DENABLE_SSL=${SSL}
-            -G "${GENERATOR}" ..;
+            -G "${GENERATOR}" .. || true;
     fi
-  - echo "CMakeError.log:"; cat CMakeFiles/CMakeError.log
-  - echo "CMakeOutput.log:"; cat CMakeFiles/CMakeOutput.log
+  - echo "CMakeError.log:"; cat CMakeFiles/CMakeError.log || true
+  - echo "CMakeOutput.log:"; cat CMakeFiles/CMakeOutput.log || true
 
   - case "${GENERATOR}" in
       "Unix Makefiles")
