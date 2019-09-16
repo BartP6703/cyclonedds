@@ -6,7 +6,8 @@
 
 int real_main(void)
 {
+	printf("main() has started\n");
 	vTaskStartScheduler();
-	while(1);
+	//while(1);
 	return 0;
 }
