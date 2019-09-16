@@ -186,6 +186,7 @@ script:
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
             -DUSE_SANITIZER=${ASAN}
             -DENABLE_SSL=${SSL}
+            -DBUILD_TESTING=on
             -DWITH_FREERTOS=on
             -G "${GENERATOR}" .. || true;
     else
@@ -193,6 +194,7 @@ script:
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
             -DUSE_SANITIZER=${ASAN}
             -DENABLE_SSL=${SSL}
+            -DBUILD_TESTING=on
             -G "${GENERATOR}" .. || true;
     fi
   - case "${GENERATOR}" in
