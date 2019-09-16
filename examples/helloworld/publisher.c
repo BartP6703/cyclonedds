@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+extern int real_main (int argc, char ** argv);
+
 int real_main (int argc, char ** argv)
 {
   dds_entity_t participant;

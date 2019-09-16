@@ -2267,6 +2267,8 @@ static void set_print_mode(const char *modestr) {
     dds_free(copy);
 }
 
+extern int real_main(int argc, char *argv[]);
+
 int real_main(int argc, char *argv[]) {
     dds_entity_t sub = 0;
     dds_entity_t pub = 0;

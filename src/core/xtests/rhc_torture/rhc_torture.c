@@ -821,6 +821,8 @@ static void test_conditions (dds_entity_t pp, dds_entity_t tp, const int count, 
     fwr (wr[i]);
 }
 
+extern int real_main (int argc, char **argv);
+
 int real_main (int argc, char **argv)
 {
   dds_entity_t pp = dds_create_participant(DDS_DOMAIN_DEFAULT, NULL, NULL);

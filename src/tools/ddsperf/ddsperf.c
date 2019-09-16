@@ -1836,6 +1836,8 @@ static void set_mode (int xoptind, int xargc, char * const xargv[])
   }
 }
 
+extern int real_main (int argc, char *argv[]);
+
 int real_main (int argc, char *argv[])
 {
   dds_entity_t ws;

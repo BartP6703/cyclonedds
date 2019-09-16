@@ -35,6 +35,8 @@ static void sigint (int sig)
   done = true;
 }
 
+extern int real_main (int argc, char **argv);
+
 int real_main (int argc, char **argv)
 {
   uint32_t payloadSize = 8192;

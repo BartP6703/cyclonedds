@@ -516,6 +516,8 @@ static void usage (void)
   exit (1);
 }
 
+extern int real_main (int argc, char **argv);
+
 int real_main (int argc, char **argv)
 {
   FILE *fp = stdout;
