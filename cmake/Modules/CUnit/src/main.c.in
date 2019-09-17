@@ -193,6 +193,11 @@ int real_main(int argc, char *argv[])
 {
     int ret = EXIT_SUCCESS;
 
+    //printf("%s(): argc:%d", __func__, argc);
+    //for (int i = 0; i < argc; i++) {
+    //	    printf(",argv[%d]:%s", i, argv[i]);
+    //}
+    //printf("\n");
     if (parse_options(argc, argv) != 0) {
         usage(argv[0]);
         return EX_USAGE;

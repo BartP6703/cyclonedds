@@ -94,6 +94,11 @@ static void vMainTask(void *ptr)
   /* Reset getopt global variables. */
   opterr = 1;
   optind = 1;
+  //printf("%s(): argc:%d", __func__, args->argc);
+  //for (int i = 0; i < args->argc; i++) {
+  // printf(",argv[%d]:%s", i, args->argv[i]);
+  //}
+  //printf("\n");
   (void)real_main(args->argc, args->argv);
   vPortFree(args->argv);
   vPortFree(args);
@@ -108,7 +113,12 @@ main(int argc, char *argv[])
   char *name;
   args_t *args = NULL;
 
-  /* Determine program name. */
+  //printf("%s:%s(): argc: %d\n", __FILE__, __func__, argc);
+  //for (int i = 0; i < argc; i++) {
+  // printf(",argv[%d]: %s\n", i, argv[i]);
+  //}
+
+  /* Determine  program name. */
   assert(argc >= 0 && argv[0] != NULL);
   name = strrchr(argv[0], '/');
   if (name != NULL) {
@@ -123,24 +133,24 @@ main(int argc, char *argv[])
 
   memset(args, 0, sizeof(*args));
 
-  /* Parse command line options. */
-  while ((opt = getopt(argc, argv, ":a:dg:hn:")) != -1) {
-    switch (opt) {
-      case 'h':
-        help(name);
-        exit(EX_OK);
-      case '?':
-        fprintf(stderr, "Unknown option '%c'"LF, opt);
-        usage(name);
-        exit(EX_USAGE);
-      case ':':
-      /* fall through */
-      default:
-        fprintf(stderr, "Option '%c' requires an argument"LF, opt);
-        usage(name);
-        exit(EX_USAGE);
-    }
-  }
+  ///* Parse command line options. */
+  //while ((opt = getopt(argc, argv, ":a:dg:hn:")) != -1) {
+  //  switch (opt) {
+  //    case 'h':
+  //      help(name);
+  //      exit(EX_OK);
+  //    case '?':
+  //      fprintf(stderr, "Unknown option '%c'"LF, opt);
+  //      usage(name);
+  //      exit(EX_USAGE);
+  //    case ':':
+  //    /* fall through */
+  //    default:
+  //      fprintf(stderr, "Option '%c' requires an argument"LF, opt);
+  //      usage(name);
+  //      exit(EX_USAGE);
+  //  }
+  //}
 
   /* Copy leftover arguments into a new array. */
   args->argc = (argc - optind) + 1;
