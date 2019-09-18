@@ -135,8 +135,8 @@ jobs:
     #- <<: *linux_gcc8
     #  env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=YES, GENERATOR="Unix Makefiles", COVERITY_SCAN=true ]
     #  if: type = cron
-    #- <<: *linux_gcc8
-    #  env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=NO, FREERTOS=NO, GENERATOR="Unix Makefiles" ]
+    - <<: *linux_gcc8
+      env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=NO, FREERTOS=NO, GENERATOR="Unix Makefiles" ]
     - <<: *linux_gcc8
       env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=NO, FREERTOS=YES, GENERATOR="Unix Makefiles" ]
     #- <<: *linux_gcc8
