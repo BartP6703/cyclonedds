@@ -139,6 +139,8 @@ jobs:
       env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=NO, FREERTOS=NO, GENERATOR="Unix Makefiles" ]
     - <<: *linux_gcc8
       env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=NO, FREERTOS=YES, GENERATOR="Unix Makefiles" ]
+    - <<: *linux_gcc8
+      env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=NO, FREERTOS=YES, LWIP=YES, GENERATOR="Unix Makefiles" ]
     #- <<: *linux_gcc8
     #  env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=YES, GENERATOR="Unix Makefiles" ]
     #- <<: *linux_gcc8
@@ -176,19 +178,39 @@ script:
       cmake --build . --target install;
       cd ../../..;
     fi
+  - if [ "${LWIP}" != "NO" ]; then
+      cd workspace/bsp/libsrc/lwip210/contrib/ports/unix/lib;
+      mkdir build;
+      cd build;
+      cmake -DCMAKE_INSTALL_PREFIX=$(pwd)/install ..
+      cmake --build . --target install;
+      cd ../../../../../../../../..;
+    fi
   - mkdir build
   - cd build
   - conan install -b missing -s arch=${ARCH} -s build_type=${BUILD_TYPE} ..
   - echo "build_type:${BUILD_TYPE}"
   - if [ "${FREERTOS}" != "NO" ]; then
-      cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
-            -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake
-            -DCMAKE_INSTALL_PREFIX=$(pwd)/install
-            -DUSE_SANITIZER=${ASAN}
-            -DENABLE_SSL=${SSL}
-            -DBUILD_TESTING=on
-            -DWITH_FREERTOS=on
-            -G "${GENERATOR}" .. || true;
+      if [ "${LWIP}" != "NO" ]; then
+        cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
+              -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake
+              -DCMAKE_INSTALL_PREFIX=$(pwd)/install
+              -DUSE_SANITIZER=${ASAN}
+              -DENABLE_SSL=${SSL}
+              -DBUILD_TESTING=on
+              -DWITH_FREERTOS=on
+              -DWITH_LWIP=on
+              -G "${GENERATOR}" .. || true;
+      else
+        cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
+              -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake
+              -DCMAKE_INSTALL_PREFIX=$(pwd)/install
+              -DUSE_SANITIZER=${ASAN}
+              -DENABLE_SSL=${SSL}
+              -DBUILD_TESTING=on
+              -DWITH_FREERTOS=on
+              -G "${GENERATOR}" .. || true;
+      fi;
     else
       cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX=$(pwd)/install
