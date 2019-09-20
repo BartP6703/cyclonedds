@@ -182,7 +182,7 @@ script:
       cd workspace/bsp/libsrc/lwip210/contrib/ports/unix/lib;
       mkdir build;
       cd build;
-      cmake -DCMAKE_INSTALL_PREFIX=$(pwd)/install ..
+      cmake -DCMAKE_INSTALL_PREFIX=$(pwd)/install ..;
       cmake --build . --target install;
       cd ../../../../../../../../..;
     fi
