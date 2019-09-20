@@ -120,7 +120,7 @@ if("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang" OR
   endif()
 elseif("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
   #message(STATUS gcc)
-  add_compile_options(-Wall -Wextra -Wconversion -Wmissing-prototypes)
+  add_compile_options(-Wall -Wextra -Wno-conversion -Wmissing-prototypes)
   if(${WERROR})
     add_compile_options(-Werror)
   endif()
