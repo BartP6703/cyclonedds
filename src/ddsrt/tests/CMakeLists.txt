@@ -37,7 +37,7 @@ endif()
 
 add_cunit_executable(cunit_ddsrt ${sources})
 target_link_libraries(
-  cunit_ddsrt PRIVATE ddsrt liblwip.so)
+  cunit_ddsrt PRIVATE ddsrt)
 target_include_directories(
   cunit_ddsrt PRIVATE "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>")
 generate_dummy_export_header(

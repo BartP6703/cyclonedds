@@ -19,7 +19,7 @@ set(CMAKE_CXX_COMPILER "/usr/bin/g++")
 
 set(CMAKE_C_FLAGS "${include_paths} ${c_flags} ${defines}")
 set(CMAKE_CXX_FLAGS "${include_paths} ${cxx_flags} ${defines}")
-set(CMAKE_EXE_LINKER_FLAGS "${linker_flags} ${library_paths}")
+set(CMAKE_EXE_LINKER_FLAGS "${linker_flags} ${library_paths} -Wl,-rpath -Wl,${lwip}/contrib/ports/unix/lib/build")
 set(CMAKE_C_STANDARD_LIBRARIES "${c_objects} ${library_paths} ${c_libraries}")
 set(CMAKE_CXX_STANDARD_LIBRARIES "${cxx_objects} ${library_paths} ${cxx_libraries}")
 
