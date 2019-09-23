@@ -13,6 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <lwip/init.h>
+
 #define EX_USAGE (64)
 #define EX_SOFTWARE (70)
 
@@ -196,6 +198,11 @@ int main (int argc, char *argv[])
 {
     int ret = EXIT_SUCCESS;
 
+    //printf("%s() in %s: argc:%d\n", __func__, __FILE__, argc);
+    //for (int i = 0; i < argc; i++) {
+    //    printf("%s() in %s: argv[%d]:%s\n", __func__, __FILE__, i, argv[i]);
+    //}
+
     if (parse_options(argc, argv) != 0) {
         usage(argv[0]);
         return EX_USAGE;
@@ -206,6 +213,8 @@ int main (int argc, char *argv[])
         fprintf(stderr, "CU_initialize_registry: %s\n", CU_get_error_msg());
         return EX_SOFTWARE;
     }
+
+    lwip_init();
 
 /* CMake will expand the macro below to register all suites and tests. */
 @defns@
