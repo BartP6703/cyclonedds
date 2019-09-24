@@ -39,7 +39,7 @@ submit_to_coverity_scan: &submit_to_coverity_scan
 
 linux_gcc8: &linux_gcc8
   os: linux
-  dist: xenial
+  dist: bionic
   compiler: gcc
   #  addons:
   #  apt:
@@ -56,7 +56,7 @@ linux_gcc8: &linux_gcc8
 
 linux_clang: &linux_clang
   os: linux
-  dist: xenial
+  dist: bionic
   compiler: clang
   addons:
     apt:
