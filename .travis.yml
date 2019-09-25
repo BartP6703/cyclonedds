@@ -232,7 +232,7 @@ script:
     esac || true
   - /sbin/ifconfig
   #  - CYCLONEDDS_URI='<CycloneDDS><Domain><Internal><EnableExpensiveChecks>all</EnableExpensiveChecks></Internal><Tracing><Verbosity>finest</Verbosity><OutputFile>lite.log</OutputFile></Tracing></Domain></CycloneDDS>' ctest -j 4 --output-on-failure -T test -I 0,0,,17,18,19,27,28,31,46 -C ${BUILD_TYPE}
-  - CYCLONEDDS_URI='<CycloneDDS><Domain><General><NetworkInterfaceAddress>docker0</NetworkInterfaceAddress></General><Internal><EnableExpensiveChecks>all</EnableExpensiveChecks></Internal><Tracing><Verbosity>finest</Verbosity><OutputFile>lite.log</OutputFile></Tracing></Domain></CycloneDDS>' ctest -j 4 --output-on-failure -T test -C ${BUILD_TYPE}
+  - CYCLONEDDS_URI='<CycloneDDS><Domain><General><NetworkInterfaceAddress>lo</NetworkInterfaceAddress></General><Internal><EnableExpensiveChecks>all</EnableExpensiveChecks></Internal><Tracing><Verbosity>finest</Verbosity><OutputFile>lite.log</OutputFile></Tracing></Domain></CycloneDDS>' ctest -j 4 --output-on-failure -T test -C ${BUILD_TYPE}
   - find -name lite.log -exec echo file:{} \; -exec cat {} \;
   - if [ "${ASAN}" != "none" ]; then
       CMAKE_LINKER_FLAGS="-DCMAKE_LINKER_FLAGS=-fsanitize=${USE_SANITIZER}";
