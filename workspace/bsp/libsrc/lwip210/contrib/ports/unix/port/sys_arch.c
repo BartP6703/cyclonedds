@@ -608,6 +608,8 @@ sys_mutex_new(struct sys_mutex **mutex)
 void
 sys_mutex_lock(struct sys_mutex **mutex)
 {
+  if (*mutex == NULL) return;
+  LWIP_ASSERT("sys_mutex_lock", *mutex != NULL);
   pthread_mutex_lock(&((*mutex)->mutex));
 }
 
@@ -616,6 +618,8 @@ sys_mutex_lock(struct sys_mutex **mutex)
 void
 sys_mutex_unlock(struct sys_mutex **mutex)
 {
+  if (*mutex == NULL) return;
+  LWIP_ASSERT("sys_mutex_lock", *mutex != NULL);
   pthread_mutex_unlock(&((*mutex)->mutex));
 }
 
@@ -624,6 +628,8 @@ sys_mutex_unlock(struct sys_mutex **mutex)
 void
 sys_mutex_free(struct sys_mutex **mutex)
 {
+  if (*mutex == NULL) return;
+  LWIP_ASSERT("sys_mutex_lock", *mutex != NULL);
   pthread_mutex_destroy(&((*mutex)->mutex));
   free(*mutex);
 }
