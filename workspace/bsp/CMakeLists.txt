@@ -270,6 +270,9 @@ target_include_directories(
     PUBLIC
       "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
       "$<BUILD_INTERFACE:${source_path}/include>"
+      "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../workspace/bsp/include>"
+      "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../workspace/bsp/libsrc/lwip210/contrib/ports/unix/lib>"
+      "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../workspace/bsp/libsrc/lwip210/contrib/ports/unix/port/include>"
       "$<BUILD_INTERFACE:${source_path}/portable/GCC/POSIX>"
       "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 
