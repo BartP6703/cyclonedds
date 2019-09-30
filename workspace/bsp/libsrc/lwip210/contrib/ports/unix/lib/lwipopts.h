@@ -442,4 +442,8 @@ void sys_unlock_tcpip_core(void);
 #endif
 #endif
 
+#define LWIP_MULTICAST_PING 1
+
+#define SO_REUSE 1
+
 #endif /* LWIP_LWIPOPTS_H */

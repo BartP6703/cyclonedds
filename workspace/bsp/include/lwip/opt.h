@@ -1692,7 +1692,7 @@
  * LWIP_LOOPIF_MULTICAST==1: Support multicast/IGMP on loop interface (127.0.0.1).
  */
 #if !defined LWIP_LOOPIF_MULTICAST || defined __DOXYGEN__
-#define LWIP_LOOPIF_MULTICAST           0
+#define LWIP_LOOPIF_MULTICAST           1
 #endif
 
 /**
