@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-BR_DEV="${1:-br0}"
-
-echo "Create virtual interface vi0 with address 192.168.0.10 and add to $BR_DEV"
-sudo ovs-vsctl add-port $BR_DEV vi0 -- set interface vi0 type=internal || { echo "Failed"; exit 1; }
-sudo ip addr add 192.168.0.10 dev vi0 || { echo "Failed"; exit 1; }
-sudo ip link set vi0 up || { echo "Failed"; exit 1; }
-echo "Success"
