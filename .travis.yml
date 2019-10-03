@@ -170,38 +170,38 @@ before_script:
 
 script:
   - if [ "${FREERTOS}" != "NO" ]; then
-      cd ports/freertos-posix;  #ports/freertos-posix
+      cd ports/freertos-posix;
       git clone https://github.com/shlinym/FreeRTOS-Sim.git;
       mkdir build;
-      cd build;                 #ports/freertos-posix/build
+      cd build;
       cmake -DCMAKE_INSTALL_PREFIX=$(pwd)/install ..;
       cmake --build . --target install;
-      cd ../../..;              #.
+      cd ../../..;
     fi
   - if [ "${LWIP}" != "NO" ]; then
-      cd workspace/bsp;         #workspace/bsp
+      cd workspace/bsp;
       git clone https://git.savannah.nongnu.org/git/lwip.git;
-      cd lwip;                  #workspace/bsp/lwip
+      cd lwip;
       git checkout tags/STABLE-2_1_2_RELEASE -b STABLE-2_1_2_RELEASE;
-      cd ..;                    #workspace/bsp
+      cd ..;
       git clone https://git.savannah.nongnu.org/git/lwip/lwip-contrib.git;
-      cd lwip-contrib;          #workspace/bsp/lwip-contrib
+      cd lwip-contrib;
       git checkout tags/STABLE-2_1_0_RELEASE -b STABLE-2_1_0_RELEASE;
-      cd ..;                    #workspace/bsp
+      cd ..;
       mkdir lwip-contrib/ports/unix/example_app/build;
-      cd lwip-contrib/ports/unix/example_app/build; #workspace/bsp/lwip-contrib/ports/unix/example_app/build
+      cd lwip-contrib/ports/unix/example_app/build;
       cmake ..;
       cp ../../../../../lwipcfg.h ../../../../examples/example_app;
       cmake --build . --target all;
-      cd ../../../../../../../ports/freertos-posix; #ports/freertos-posix
+      cd ../../../../../../../ports/freertos-posix;
       mkdir -p build;
-      cd build;                 #ports/freertos-posix/build
+      cd build;
       cmake -DCMAKE_INSTALL_PREFIX=$(pwd)/install ..;
       cmake --build . --target install;
-      cd ../../..;              #.
+      cd ../../..;
     fi
   - mkdir -p build
-  - cd build                    #build
+  - cd build
   - conan install -b missing -s arch=${ARCH} -s build_type=${BUILD_TYPE} ..
   - echo "build_type:${BUILD_TYPE}"
   - if [ "${FREERTOS}" != "NO" ]; then
@@ -246,7 +246,7 @@ script:
     esac || true
   - /sbin/ifconfig
   #  - CYCLONEDDS_URI='<CycloneDDS><Domain><Internal><EnableExpensiveChecks>all</EnableExpensiveChecks></Internal><Tracing><Verbosity>finest</Verbosity><OutputFile>lite.log</OutputFile></Tracing></Domain></CycloneDDS>' ctest -j 4 --output-on-failure -T test -I 0,0,,17,18,19,27,28,31,46 -C ${BUILD_TYPE}
-  - CYCLONEDDS_URI='<CycloneDDS><Domain><General><NetworkInterfaceAddress>lo</NetworkInterfaceAddress></General><Internal><EnableExpensiveChecks>all</EnableExpensiveChecks></Internal><Tracing><Verbosity>finest</Verbosity><OutputFile>lite.log</OutputFile></Tracing></Domain></CycloneDDS>' ctest -j 4 --output-on-failure -T test -C ${BUILD_TYPE}
+  - CYCLONEDDS_URI='<CycloneDDS><Domain><General><NetworkInterfaceAddress>lo0</NetworkInterfaceAddress></General><Internal><EnableExpensiveChecks>all</EnableExpensiveChecks></Internal><Tracing><Verbosity>finest</Verbosity><OutputFile>lite.log</OutputFile></Tracing></Domain></CycloneDDS>' ctest -j 4 --output-on-failure -T test -C ${BUILD_TYPE}
   - find -name lite.log -exec echo file:{} \; -exec cat {} \;
   - if [ "${ASAN}" != "none" ]; then
       CMAKE_LINKER_FLAGS="-DCMAKE_LINKER_FLAGS=-fsanitize=${USE_SANITIZER}";
