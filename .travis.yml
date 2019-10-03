@@ -135,10 +135,10 @@ jobs:
     #- <<: *linux_gcc8
     #  env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=YES, GENERATOR="Unix Makefiles", COVERITY_SCAN=true ]
     #  if: type = cron
-    - <<: *linux_gcc8
-      env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=NO, FREERTOS=NO, GENERATOR="Unix Makefiles" ]
-    - <<: *linux_gcc8
-      env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=NO, FREERTOS=YES, GENERATOR="Unix Makefiles" ]
+    #- <<: *linux_gcc8
+    #  env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=NO, FREERTOS=NO, GENERATOR="Unix Makefiles" ]
+    #- <<: *linux_gcc8
+    #  env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=NO, FREERTOS=YES, GENERATOR="Unix Makefiles" ]
     - <<: *linux_gcc8
       env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=NO, FREERTOS=YES, LWIP=YES, GENERATOR="Unix Makefiles" ]
     #- <<: *linux_gcc8
@@ -170,24 +170,38 @@ before_script:
 
 script:
   - if [ "${FREERTOS}" != "NO" ]; then
-      cd ports/freertos-posix;
+      cd ports/freertos-posix;  #ports/freertos-posix
       git clone https://github.com/shlinym/FreeRTOS-Sim.git;
       mkdir build;
-      cd build;
+      cd build;                 #ports/freertos-posix/build
       cmake -DCMAKE_INSTALL_PREFIX=$(pwd)/install ..;
       cmake --build . --target install;
-      cd ../../..;
+      cd ../../..;              #.
     fi
   - if [ "${LWIP}" != "NO" ]; then
-      cd workspace/bsp/libsrc/lwip210/contrib/ports/unix/lib;
-      mkdir build;
-      cd build;
+      cd workspace/bsp;         #workspace/bsp
+      git clone https://git.savannah.nongnu.org/git/lwip.git;
+      cd lwip;                  #workspace/bsp/lwip
+      git checkout tags/STABLE-2_1_2_RELEASE -b STABLE-2_1_2_RELEASE;
+      cd ..;                    #workspace/bsp
+      git clone https://git.savannah.nongnu.org/git/lwip/lwip-contrib.git;
+      cd lwip-contrib;          #workspace/bsp/lwip-contrib
+      git checkout tags/STABLE-2_1_0_RELEASE -b STABLE-2_1_0_RELEASE;
+      cd ..;                    #workspace/bsp
+      mkdir lwip-contrib/ports/unix/example_app/build;
+      cd lwip-contrib/ports/unix/example_app/build; #workspace/bsp/lwip-contrib/ports/unix/example_app/build
+      cmake ..;
+      cp ../../../../../lwipcfg.h ../../../../examples/example_app;
+      cmake --build . --target all;
+      cd ../../../../../../../ports/freertos-posix; #ports/freertos-posix
+      mkdir -p build;
+      cd build;                 #ports/freertos-posix/build
       cmake -DCMAKE_INSTALL_PREFIX=$(pwd)/install ..;
       cmake --build . --target install;
-      cd ../../../../../../../../..;
+      cd ../../..;              #.
     fi
-  - mkdir build
-  - cd build
+  - mkdir -p build
+  - cd build                    #build
   - conan install -b missing -s arch=${ARCH} -s build_type=${BUILD_TYPE} ..
   - echo "build_type:${BUILD_TYPE}"
   - if [ "${FREERTOS}" != "NO" ]; then

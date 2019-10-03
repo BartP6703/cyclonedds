@@ -214,7 +214,7 @@ int main (int argc, char *argv[])
         return EX_SOFTWARE;
     }
 
-    lwip_init();
+    tcpip_init();
 
 /* CMake will expand the macro below to register all suites and tests. */
 @defns@

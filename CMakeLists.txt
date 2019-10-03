@@ -218,7 +218,6 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
 add_subdirectory(src)
-add_subdirectory(workspace)
 
 if(BUILD_IDLC)
   add_subdirectory(examples)
