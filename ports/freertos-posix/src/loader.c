@@ -91,14 +91,15 @@ extern int real_main(int argc, char *argv[]);
 static void vMainTask(void *ptr)
 {
   args_t *args = (args_t *)ptr;
+  int ret = 0;
   /* Reset getopt global variables. */
   opterr = 1;
   optind = 1;
-  (void)real_main(args->argc, args->argv);
+  ret = real_main(args->argc, args->argv);
   vPortFree(args->argv);
   vPortFree(args);
-  vTaskEndScheduler();
-  _Exit(0);
+  /*vTaskEndScheduler();*/
+  _Exit(ret);
 }
 
 int

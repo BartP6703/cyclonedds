@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <lwip/init.h>
+#include <lwip/tcpip.h>
 
 #define EX_USAGE (64)
 #define EX_SOFTWARE (70)
@@ -214,7 +214,7 @@ int main (int argc, char *argv[])
         return EX_SOFTWARE;
     }
 
-    tcpip_init();
+    tcpip_init(NULL, NULL);
 
 /* CMake will expand the macro below to register all suites and tests. */
 @defns@

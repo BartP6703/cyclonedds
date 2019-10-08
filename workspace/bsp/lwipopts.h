@@ -13,6 +13,7 @@
 #define __LWIP_BROADCAST_PING MakeString( Stringize, LWIP_BROADCAST_PING )
 #define __LWIP_MULTICAST_PING MakeString( Stringize, LWIP_MULTICAST_PING )
 #define __SO_REUSE            MakeString( Stringize, SO_REUSE )
+#define __LWIP_AUTOIP         MakeString( Stringize, LWIP_AUTOIP )
 #endif
 
 #if defined(LWIP_IGMP)
@@ -44,5 +45,13 @@
 #endif
 #endif
 #define SO_REUSE 1
+
+#if defined(LWIP_AUTOIP)
+#ifdef SHOW_MESSAGE
+#pragma message("lwip_autoip has been defined (" __LWIP_AUTOIP ")")
+#endif
+#undef LWIP_AUTOIP
+#endif
+#define LWIP_AUTOIP 1
 
 #endif
