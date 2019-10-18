@@ -154,7 +154,7 @@ ddsrt_getifaddrs(
        netif != NULL && rc == DDS_RETCODE_OK;
        netif = netif->next)
   {
-    if (use_ip4 && IP_IS_V4(&netif.ip_addr)) {
+    if (use_ip4 && IP_IS_V4(&netif->ip_addr)) {
       rc = copyaddr(&next_ifa, netif, &netif->ip_addr);
       if (rc == DDS_RETCODE_OK) {
         if (ifa == NULL) {
