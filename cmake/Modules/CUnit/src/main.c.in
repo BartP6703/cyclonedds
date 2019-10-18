@@ -13,7 +13,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if DDSRT_WITH_FREERTOS
 #include <lwip/tcpip.h>
+#endif
 
 #define EX_USAGE (64)
 #define EX_SOFTWARE (70)
@@ -214,7 +216,9 @@ int main (int argc, char *argv[])
         return EX_SOFTWARE;
     }
 
+#if DDSRT_WITH_FREERTOS
     tcpip_init(NULL, NULL);
+#endif
 
 /* CMake will expand the macro below to register all suites and tests. */
 @defns@
