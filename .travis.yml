@@ -263,7 +263,7 @@ script:
             -DENABLE_SSL=${SSL}
             -DBUILD_TESTING=on
             -DWERROR=on
-            -G "${GENERATOR}" ..
+            -G "${GENERATOR}" ..;
     fi
   - case "${GENERATOR}" in
       "Unix Makefiles")
@@ -281,18 +281,6 @@ script:
     else
       CYCLONEDDS_URI='<CycloneDDS><Domain><Internal><EnableExpensiveChecks>all</EnableExpensiveChecks></Internal><Tracing><Verbosity>config</Verbosity><OutputFile>stderr</OutputFile></Tracing></Domain></CycloneDDS>' ctest -j 4 --output-on-failure -T test -E '^CUnit_ddsrt_random_default_random$' -C ${BUILD_TYPE};
     fi
-  - if [ "${ASAN}" != "none" ]; then
-      CMAKE_LINKER_FLAGS="-DCMAKE_LINKER_FLAGS=-fsanitize=${USE_SANITIZER}";
-      CMAKE_C_FLAGS="-DCMAKE_C_FLAGS=-fsanitize=${USE_SANITIZER}";
-    fi
-  - mkdir install/share/CycloneDDS/examples/helloworld/build
-  - cd install/share/CycloneDDS/examples/helloworld/build
-  - cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
-          ${CMAKE_C_FLAGS}
-          ${CMAKE_LINKER_FLAGS}
-          -G "${GENERATOR}" ..
-  - cmake --build . --config ${BUILD_TYPE}
-  - cd "${TRAVIS_BUILD_DIR}/build"
 
 after_success:
   - *submit_to_coverity_scan
