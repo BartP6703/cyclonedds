@@ -211,7 +211,7 @@ script:
       cd ../../..;
     fi
  - if [ "${LWIP}" != "NO" ]; then
-      cd workspace/bsp;
+      cd ports/freertos-posix/lwip;
       git clone https://git.savannah.nongnu.org/git/lwip.git;
       cd lwip;
       git checkout tags/STABLE-2_1_2_RELEASE -b STABLE-2_1_2_RELEASE;
@@ -238,7 +238,7 @@ script:
   - if [ "${FREERTOS}" != "NO" ]; then
       if [ "${LWIP}" != "NO" ]; then
         cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
-              -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake
+              -DCMAKE_TOOLCHAIN_FILE=../ports/freertos-posix/toolchain.cmake
               -DCMAKE_INSTALL_PREFIX=$(pwd)/install
               -DUSE_SANITIZER=${ASAN}
               -DENABLE_SSL=${SSL}
@@ -248,7 +248,7 @@ script:
               -G "${GENERATOR}" .. || true;
       else
         cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
-              -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake
+              -DCMAKE_TOOLCHAIN_FILE=../ports/freertos-posix/toolchain.cmake
               -DCMAKE_INSTALL_PREFIX=$(pwd)/install
               -DUSE_SANITIZER=${ASAN}
               -DENABLE_SSL=${SSL}
