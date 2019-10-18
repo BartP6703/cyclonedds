@@ -11,8 +11,9 @@
  */
 #include <assert.h>
 #include <string.h>
+#include <pthread.h>
 #include <lwip/inet.h>
-#include <lwip/netif.h> /* netif_list */
+#include <lwip/netif.h> /* netif_list, netif_mutex */
 #include <lwip/sockets.h>
 
 #include "dds/ddsrt/heap.h"
@@ -30,19 +31,26 @@ getflags(
 {
   uint32_t flags = 0;
 
+  printf("get_flags: netif->flags:%02x\n", netif->flags);
+
   if (netif->flags & NETIF_FLAG_UP) {
     flags |= IFF_UP;
+    printf("get_flags: netif_flag_up -> %02x (iff_up)\n", flags);
   }
   if (netif->flags & NETIF_FLAG_BROADCAST) {
     flags |= IFF_BROADCAST;
+    printf("get_flags: netif_flag_broadcast -> %02x (iff_broadcast)\n", flags);
   }
   if (netif->flags & NETIF_FLAG_IGMP) {
     flags |= IFF_MULTICAST;
+    printf("get_flags: netif_flag_igmp -> %02x (iff_multicast)\n", flags);
   }
   if (ip_addr_isloopback(addr)) {
     flags |= IFF_LOOPBACK;
+    printf("get_flags: ip_addr_is_loopback -> %02x (iff_loopback)\n", flags);
   }
 
+  printf("get_flags: flags:%02x\n", flags);
   return flags;
 }
 
@@ -67,11 +75,11 @@ sockaddr_from_ip_addr(
   }
 }
 
-static dds_return_t
+/*static*/ dds_return_t
 copyaddr(
   ddsrt_ifaddrs_t **ifap,
-  const struct netif *netif,
-  const ip_addr_t *addr)
+  /*const*/ struct netif *netif,
+  /*const*/ ip_addr_t *addr)
 {
   dds_return_t rc = DDS_RETCODE_OK;
   ddsrt_ifaddrs_t *ifa;
@@ -130,7 +138,7 @@ ddsrt_getifaddrs(
 {
   dds_return_t rc = DDS_RETCODE_OK;
   int use_ip4, use_ip6;
-  struct netif *netif;
+  struct netif netif;
   ddsrt_ifaddrs_t *ifa, *next_ifa, *root_ifa;
 
   assert(ifap != NULL);
@@ -150,12 +158,39 @@ ddsrt_getifaddrs(
 
   ifa = next_ifa = root_ifa = NULL;
 
-  for (netif = netif_list;
-       netif != NULL && rc == DDS_RETCODE_OK;
-       netif = netif->next)
-  {
-    if (use_ip4 && IP_IS_V4(&netif->ip_addr)) {
-      rc = copyaddr(&next_ifa, netif, &netif->ip_addr);
+  //for (netif = netif_list; netif != NULL; netif = netif->next)
+  //{
+  //netif = netif_list;
+
+  pthread_mutex_lock(&netif_mutex);
+
+
+  if (netif_list != NULL) {
+	unsigned char *src = (unsigned char *)netif_list;
+	unsigned char *dst = (unsigned char *)&netif;
+	printf("offset(flags):%d\n", (int)((void *)&netif_list->flags - (void *)netif_list));
+	for (int i = 0; i < (int)sizeof(struct netif); i++) {
+	  *dst = *src;
+	  printf("%d/%d: %02x -> %02x\n", i, (int)sizeof(struct netif), *src, *dst);
+	  dst++;
+	  src++;
+	}
+	//memcpy(&netif, netif_list, sizeof(struct netif));
+	netif.flags = 37; //hackhack
+	netif.flags |= NETIF_FLAG_IGMP; //hackhack
+	netif.name[0] = 'l'; //hackhack
+	netif.name[1] = 'o'; //hackhack
+	char *name = netif.name;
+	u8_t flags = netif.flags;
+    printf("ddsrt_getifaddr: netif:%p \"%s\" %02x\n", (void *)&netif_list, name, flags);
+    if (use_ip4 && IP_IS_V4(&netif.ip_addr)) {
+
+      printf("ddsrt_getifaddrs5:\n");
+      (void)check_list(&netif);
+      rc = copyaddr(&next_ifa, &netif, &netif.ip_addr);
+      printf("ddsrt_getifaddrs6:\n");
+      (void)check_list(&netif);
+
       if (rc == DDS_RETCODE_OK) {
         if (ifa == NULL) {
           ifa = root_ifa = next_ifa;
@@ -163,6 +198,8 @@ ddsrt_getifaddrs(
           ifa->next = next_ifa;
           ifa = next_ifa;
         }
+      } else {
+    	  //break;
       }
     }
 
@@ -197,6 +234,8 @@ again:
     }
 #endif
   }
+
+  pthread_mutex_unlock(&netif_mutex);
 
   if (rc == DDS_RETCODE_OK) {
     *ifap = ifa;

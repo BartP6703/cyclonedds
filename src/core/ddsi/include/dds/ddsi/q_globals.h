@@ -26,10 +26,6 @@
 #include "dds/ddsi/q_sockwaitset.h"
 #include "dds/ddsi/q_config.h"
 
-#ifdef DDSI_INCLUDE_ENCRYPTION
-#include "dds/ddsi/q_security.h" /* for q_securityDecoderSet */
-#endif /* DDSI_INCLUDE_ENCRYPTION */
-
 #if defined (__cplusplus)
 extern "C" {
 #endif
@@ -158,7 +154,7 @@ struct q_globals {
 
   /* GUID to be used in next call to new_participant; also protected
      by privileged_pp_lock */
-  struct nn_guid ppguid_base;
+  struct ddsi_guid ppguid_base;
 
   /* number of up, non-loopback, IPv4/IPv6 interfaces, the index of
      the selected/preferred one, and the discovered interfaces. */
@@ -287,13 +283,6 @@ struct q_globals {
   struct nn_xpack *sendq_tail;
   int sendq_stop;
   struct thread_state1 *sendq_ts;
-
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  /* Codecs needed for decoding incoming encrypted messages
-     FIXME: should be a property of the receiver thread, and pass down
-     while processing messages. For now made global */
-  q_securityDecoderSet recvSecurityCodec;
-#endif /* DDSI_INCLUDE_ENCRYPTION */
 
   /* File for dumping captured packets, NULL if disabled */
   FILE *pcap_fp;

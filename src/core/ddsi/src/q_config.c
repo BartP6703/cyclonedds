@@ -52,10 +52,6 @@ typedef enum update_result (*update_fun_t) (struct cfgst *cfgst, void *parent, s
 typedef void (*free_fun_t) (struct cfgst *cfgst, void *parent, struct cfgelem const * const cfgelem);
 typedef void (*print_fun_t) (struct cfgst *cfgst, void *parent, struct cfgelem const * const cfgelem, uint32_t sources);
 
-#ifdef DDSI_INCLUDE_SECURITY
-struct q_security_plugins q_security_plugin = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
-#endif
-
 struct unit {
   const char *name;
   int64_t multiplier;
@@ -120,6 +116,10 @@ struct cfgst {
      been inserted */
   enum implicit_toplevel implicit_toplevel;
 
+  /* Whether unique prefix matching on a name is allowed (again for environment
+     variables) */
+  bool partial_match_allowed;
+
   /* current input, mask with 1 bit set */
   uint32_t source;
 
@@ -142,7 +142,7 @@ static const ddsrt_avl_treedef_t cfgst_found_treedef =
 #define DU(fname) static enum update_result uf_##fname (struct cfgst *cfgst, void *parent, struct cfgelem const * const cfgelem, int first, const char *value)
 #define PF(fname) static void pf_##fname (struct cfgst *cfgst, void *parent, struct cfgelem const * const cfgelem, uint32_t sources)
 #define DUPF(fname) DU(fname) ; PF(fname)
-PF(nop);
+DUPF(nop);
 DUPF(networkAddress);
 DUPF(networkAddresses);
 DU(ipv4);
@@ -181,9 +181,6 @@ DUPF(retransmit_merging);
 DUPF(sched_class);
 DUPF(maybe_memsize);
 DUPF(maybe_int32);
-#ifdef DDSI_INCLUDE_ENCRYPTION
-DUPF(cipher);
-#endif
 #ifdef DDSI_INCLUDE_BANDWIDTH_LIMITING
 DUPF(bandwidth);
 #endif
@@ -207,9 +204,6 @@ DF(ff_networkAddresses);
 #ifdef DDSI_INCLUDE_NETWORK_CHANNELS
 DI(if_channel);
 #endif /* DDSI_INCLUDE_NETWORK_CHANNELS */
-#ifdef DDSI_INCLUDE_ENCRYPTION
-DI(if_security_profile);
-#endif
 #ifdef DDSI_INCLUDE_NETWORK_PARTITIONS
 DI(if_network_partition);
 DI(if_ignored_partition);
@@ -287,33 +281,6 @@ static const struct cfgelem general_cfgelems[] = {
   END_MARKER
 };
 
-#ifdef DDSI_INCLUDE_ENCRYPTION
-static const struct cfgelem securityprofile_cfgattrs[] = {
-  { ATTR("Name"), 1, NULL, RELOFF(config_securityprofile_listelem, name), 0, uf_string, ff_free, pf_string,
-    BLURB("<p>This attribute specifies the name of this DDSI2E security profile. Two security profiles cannot have the same name.</p>") },
-  { ATTR("Cipher"), 1, "null", RELOFF(config_securityprofile_listelem, cipher), 0, uf_cipher, 0, pf_cipher,
-    BLURB("<p>This attribute specifies the cipher to be used for encrypting traffic over network partitions secured by this security profile. The possible ciphers are:</p>\n\
-<ul><li><i>aes128</i>: AES with a 128-bit key;</li>\n\
-<li><i>aes192</i>: AES with a 192-bit key;</li>\n\
-<li><i>aes256</i>: AES with a 256-bit key;</li>\n\
-<li><i>blowfish</i>: the Blowfish cipher with a 128 bit key;</li>\n\
-<li><i>null</i>: no encryption;</li></ul>\n\
-<p>SHA1 is used on conjunction with all ciphers except \"null\" to ensure data integrity.</p>") },
-  { ATTR("CipherKey"), 1, "", RELOFF(config_securityprofile_listelem, key), 0, uf_string, ff_free, pf_key,
-    BLURB("<p>The CipherKey attribute is used to define the secret key required by the cipher selected using the Cipher attribute. The value can be a URI referencing an external file containing the secret key, or the secret key can be defined in-place as a string value.</p>\n\
-<p>The key must be specified as a hexadecimal string with each character representing 4 bits of the key. E.g., 1ABC represents the 16-bit key 0001 1010 1011 1100. The key should not follow a well-known pattern and must exactly match the key length of the selected cipher.</p>\n\
-<p>A malformed key will cause the security profile to be marked as invalid, and disable all network partitions secured by the (invalid) security profile to prevent information leaks.</p>\n\
-<p>As all DDS applications require read access to the XML configuration file, for security reasons it is recommended to store the secret key in an external file in the file system, referenced by its URI. The file should be protected against read and write access from other users on the host.</p>") },
-  END_MARKER
-};
-
-static const struct cfgelem security_cfgelems[] = {
-  { LEAF_W_ATTRS("SecurityProfile", securityprofile_cfgattrs), INT_MAX, 0, ABSOFF(securityProfiles), if_security_profile, 0, 0, 0,
-    BLURB("<p>This element defines a DDSI2E security profile.</p>") },
-  END_MARKER
-};
-#endif /* DDSI_INCLUDE_ENCRYPTION */
-
 #ifdef DDSI_INCLUDE_NETWORK_PARTITIONS
 static const struct cfgelem networkpartition_cfgattrs[] = {
   { ATTR("Name"), 1, NULL, RELOFF(config_networkpartition_listelem, name), 0, uf_string, ff_free, pf_string,
@@ -322,10 +289,6 @@ static const struct cfgelem networkpartition_cfgattrs[] = {
     BLURB("<p>This attribute specifies the multicast addresses associated with the network partition as a comma-separated list. Readers matching this network partition (cf. Partitioning/PartitionMappings) will listen for multicasts on all of these addresses and advertise them in the discovery protocol. The writers will select the most suitable address from the addresses advertised by the readers.</p>") },
   { ATTR("Connected"), 1, "true", RELOFF(config_networkpartition_listelem, connected), 0, uf_boolean, 0, pf_boolean,
     BLURB("<p>This attribute is a placeholder.</p>") },
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  { ATTR("SecurityProfile"), 1, "null", RELOFF(config_networkpartition_listelem, profileName), 0, uf_string, ff_free, pf_string,
-    BLURB("<p>This attribute selects the DDSI2E security profile for encrypting the traffic mapped to this DDSI2E network partition. The default \"null\" means the network partition is unsecured; any other name refers to a security profile defined using the Security/SecurityProfile elements.</p>") },
-#endif /* DDSI_INCLUDE_ENCRYPTION */
   END_MARKER
 };
 
@@ -761,7 +724,7 @@ static const struct cfgelem discovery_cfgelems[] = {
 };
 
 static const struct cfgelem tracing_cfgelems[] = {
-  { LEAF("EnableCategory"), 1, "", 0, 0, 0, uf_tracemask, 0, pf_tracemask,
+  { LEAF("Category|EnableCategory"), 1, "", 0, 0, 0, uf_tracemask, 0, pf_tracemask,
     BLURB("<p>This element enables individual logging categories. These are enabled in addition to those enabled by Tracing/Verbosity. Recognised categories are:</p>\n\
 <ul><li><i>fatal</i>: all fatal errors, errors causing immediate termination</li>\n\
 <li><i>error</i>: failures probably impacting correctness but not necessarily causing immediate termination</li>\n\
@@ -780,7 +743,7 @@ static const struct cfgelem tracing_cfgelems[] = {
 <p>In addition, there is the keyword <i>trace</i> that enables all but <i>radmin</i>, <i>topic</i>, <i>plist</i> and <i>whc</i></p>.\n\
 <p>The categorisation of tracing output is incomplete and hence most of the verbosity levels and categories are not of much use in the current release. This is an ongoing process and here we describe the target situation rather than the current situation. Currently, the most useful is <i>trace</i>.</p>") },
   { LEAF("Verbosity"), 1, "none", 0, 0, 0, uf_verbosity, 0, pf_nop,
-    BLURB("<p>This element enables standard groups of categories, based on a desired verbosity level. This is in addition to the categories enabled by the Tracing/EnableCategory setting. Recognised verbosity levels and the categories they map to are:</p>\n\
+    BLURB("<p>This element enables standard groups of categories, based on a desired verbosity level. This is in addition to the categories enabled by the Tracing/Category setting. Recognised verbosity levels and the categories they map to are:</p>\n\
 <ul><li><i>none</i>: no DDSI2E log</li>\n\
 <li><i>severe</i>: error and fatal</li>\n\
 <li><i>warning</i>: <i>severe</i> + warning</li>\n\
@@ -801,7 +764,7 @@ static const struct cfgelem tracing_cfgelems[] = {
 };
 
 static const struct cfgelem domain_cfgattrs[] = {
-  { LEAF("Id"), 0, "any", ABSOFF(domainId), 0, uf_domainId, 0, pf_domainId,
+  { ATTR("Id"), 0, "any", ABSOFF(domainId), 0, uf_domainId, 0, pf_domainId,
     BLURB("<p>Domain id this configuration applies to, or \"any\" if it applies to all domain ids.</p>") },
   END_MARKER
 };
@@ -810,10 +773,6 @@ static const struct cfgelem domain_cfgelems[] = {
   { MOVED("Id", "CycloneDDS/Domain[@Id]") },
   { GROUP("General", general_cfgelems),
     BLURB("<p>The General element specifies overall DDSI2E service settings.</p>") },
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  { GROUP("Security", security_cfgelems),
-    BLURB("<p>The Security element specifies DDSI2E security profiles that can be used to encrypt traffic mapped to DDSI2E network partitions.</p>") },
-#endif
 #ifdef DDSI_INCLUDE_NETWORK_PARTITIONS
   { GROUP("Partitioning", partitioning_cfgelems),
     BLURB("<p>The Partitioning element specifies DDSI2E network partitions and how DCPS partition/topic combinations are mapped onto the network partitions.</p>") },
@@ -849,9 +808,6 @@ static const struct cfgelem root_cfgelems[] = {
   { GROUP_W_ATTRS("Domain", domain_cfgelems, domain_cfgattrs),
     BLURB("<p>The General element specifying Domain related settings.</p>") },
   { MOVED("General", "CycloneDDS/Domain/General") },
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  { MOVED("Security", "CycloneDDS/Domain/Security") },
-#endif
 #ifdef DDSI_INCLUDE_NETWORK_PARTITIONS
   { MOVED("Partitioning", "CycloneDDS/Domain/Partitioning") },
 #endif
@@ -873,8 +829,14 @@ static const struct cfgelem root_cfgelems[] = {
   END_MARKER
 };
 
+static const struct cfgelem root_cfgattrs[] = {
+  { ATTR("xmlns:xsi"), 0, "", 0, 0, 0, uf_nop, 0, pf_nop, NULL },
+  { ATTR("xsi:noNamespaceSchemaLocation"), 0, "", 0, 0, 0, uf_nop, 0, pf_nop, NULL },
+  END_MARKER
+};
+
 static const struct cfgelem cyclonedds_root_cfgelems[] = {
-  { "CycloneDDS", root_cfgelems, NULL, NODATA, BLURB("CycloneDDS configuration") },
+  { "CycloneDDS", root_cfgelems, root_cfgattrs, NODATA, BLURB("CycloneDDS configuration") },
   END_MARKER
 };
 
@@ -1012,6 +974,8 @@ static size_t cfg_note_vsnprintf (struct cfg_note_buf *bb, const char *fmt, va_l
   return 0;
 }
 
+static void cfg_note_snprintf (struct cfg_note_buf *bb, const char *fmt, ...) ddsrt_attribute_format ((printf, 2, 3));
+
 static void cfg_note_snprintf (struct cfg_note_buf *bb, const char *fmt, ...)
 {
   /* The reason the 2nd call to os_vsnprintf is here and not inside
@@ -1123,6 +1087,8 @@ static size_t cfg_note (struct cfgst *cfgst, uint32_t cat, size_t bsz, const cha
   return 0;
 }
 
+static void cfg_warning (struct cfgst *cfgst, const char *fmt, ...) ddsrt_attribute_format ((printf, 2, 3));
+
 static void cfg_warning (struct cfgst *cfgst, const char *fmt, ...)
 {
   va_list ap;
@@ -1133,6 +1099,8 @@ static void cfg_warning (struct cfgst *cfgst, const char *fmt, ...)
     va_end (ap);
   } while (bsz > 0);
 }
+
+static enum update_result cfg_error (struct cfgst *cfgst, const char *fmt, ...) ddsrt_attribute_format ((printf, 2, 3));
 
 static enum update_result cfg_error (struct cfgst *cfgst, const char *fmt, ...)
 {
@@ -1145,6 +1113,8 @@ static enum update_result cfg_error (struct cfgst *cfgst, const char *fmt, ...)
   } while (bsz > 0);
   return URES_ERROR;
 }
+
+static void cfg_logelem (struct cfgst *cfgst, uint32_t sources, const char *fmt, ...) ddsrt_attribute_format ((printf, 3, 4));
 
 static void cfg_logelem (struct cfgst *cfgst, uint32_t sources, const char *fmt, ...)
 {
@@ -1255,15 +1225,6 @@ static int if_channel(struct cfgst *cfgst, void *parent, struct cfgelem const * 
 }
 #endif /* DDSI_INCLUDE_NETWORK_CHANNELS */
 
-#ifdef DDSI_INCLUDE_ENCRYPTION
-static int if_security_profile (struct cfgst *cfgst, void *parent, struct cfgelem const * const cfgelem)
-{
-  if (if_common (cfgst, parent, cfgelem, sizeof (struct config_securityprofile_listelem)) == NULL)
-    return -1;
-  return 0;
-}
-#endif /* DDSI_INCLUDE_ENCRYPTION */
-
 #ifdef DDSI_INCLUDE_NETWORK_PARTITIONS
 static int if_network_partition (struct cfgst *cfgst, void *parent, struct cfgelem const * const cfgelem)
 {
@@ -1271,10 +1232,6 @@ static int if_network_partition (struct cfgst *cfgst, void *parent, struct cfgel
   if (new == NULL)
     return -1;
   new->address_string = NULL;
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  new->profileName = NULL;
-  new->securityProfile = NULL;
-#endif /* DDSI_INCLUDE_ENCRYPTION */
   return 0;
 }
 
@@ -1308,6 +1265,11 @@ static void ff_free (struct cfgst *cfgst, void *parent, struct cfgelem const * c
   ddsrt_free (*elem);
 }
 
+static enum update_result uf_nop (UNUSED_ARG (struct cfgst *cfgst), UNUSED_ARG (void *parent), UNUSED_ARG (struct cfgelem const * const cfgelem), UNUSED_ARG (int first), UNUSED_ARG (const char *value))
+{
+  return URES_SUCCESS;
+}
+
 static void pf_nop (UNUSED_ARG (struct cfgst *cfgst), UNUSED_ARG (void *parent), UNUSED_ARG (struct cfgelem const * const cfgelem), UNUSED_ARG (uint32_t sources))
 {
 }
@@ -1317,14 +1279,17 @@ static enum update_result do_uint32_bitset (struct cfgst *cfgst, uint32_t *cats,
   char *copy = ddsrt_strdup (value), *cursor = copy, *tok;
   while ((tok = ddsrt_strsep (&cursor, ",")) != NULL)
   {
-    const int idx = list_index (names, tok);
+    const int idx = list_index (names, tok[0] == '-' ? tok+1 : tok);
     if (idx < 0)
     {
       const enum update_result ret = cfg_error (cfgst, "'%s' in '%s' undefined", tok, value);
       ddsrt_free (copy);
       return ret;
     }
-    *cats |= codes[idx];
+    if (tok[0] == '-')
+      *cats &= ~codes[idx];
+    else
+      *cats |= codes[idx];
   }
   ddsrt_free (copy);
   return URES_SUCCESS;
@@ -1441,7 +1406,7 @@ static void pf_int64_unit (struct cfgst *cfgst, int64_t value, uint32_t sources,
     }
     assert (m > 0);
     assert (unit != NULL);
-    cfg_logelem (cfgst, sources, "%lld %s", value / m, unit);
+    cfg_logelem (cfgst, sources, "%"PRId64" %s", value / m, unit);
   }
 }
 
@@ -1517,10 +1482,10 @@ GENERIC_ENUM_CTYPE (standards_conformance, enum nn_standards_conformance)
 
 /* "trace" is special: it enables (nearly) everything */
 static const char *tracemask_names[] = {
-  "fatal", "error", "warning", "info", "config", "discovery", "data", "radmin", "timing", "traffic", "topic", "tcp", "plist", "whc", "throttle", "rhc", "trace", NULL
+  "fatal", "error", "warning", "info", "config", "discovery", "data", "radmin", "timing", "traffic", "topic", "tcp", "plist", "whc", "throttle", "rhc", "content", "trace", NULL
 };
 static const uint32_t tracemask_codes[] = {
-  DDS_LC_FATAL, DDS_LC_ERROR, DDS_LC_WARNING, DDS_LC_INFO, DDS_LC_CONFIG, DDS_LC_DISCOVERY, DDS_LC_DATA, DDS_LC_RADMIN, DDS_LC_TIMING, DDS_LC_TRAFFIC, DDS_LC_TOPIC, DDS_LC_TCP, DDS_LC_PLIST, DDS_LC_WHC, DDS_LC_THROTTLE, DDS_LC_RHC, DDS_LC_ALL
+  DDS_LC_FATAL, DDS_LC_ERROR, DDS_LC_WARNING, DDS_LC_INFO, DDS_LC_CONFIG, DDS_LC_DISCOVERY, DDS_LC_DATA, DDS_LC_RADMIN, DDS_LC_TIMING, DDS_LC_TRAFFIC, DDS_LC_TOPIC, DDS_LC_TCP, DDS_LC_PLIST, DDS_LC_WHC, DDS_LC_THROTTLE, DDS_LC_RHC, DDS_LC_CONTENT, DDS_LC_ALL
 };
 
 static enum update_result uf_tracemask (struct cfgst *cfgst, UNUSED_ARG (void *parent), UNUSED_ARG (struct cfgelem const * const cfgelem), UNUSED_ARG (int first), const char *value)
@@ -1547,7 +1512,7 @@ static enum update_result uf_verbosity (struct cfgst *cfgst, UNUSED_ARG (void *p
 
 static void pf_tracemask (struct cfgst *cfgst, UNUSED_ARG (void *parent), UNUSED_ARG (struct cfgelem const * const cfgelem), uint32_t sources)
 {
-  /* EnableCategory is also (and often) set by Verbosity, so make an effort to locate the sources for verbosity and merge them in */
+  /* Category is also (and often) set by Verbosity, so make an effort to locate the sources for verbosity and merge them in */
   struct cfgst_node *n;
   struct cfgst_nodekey key;
   bool isattr;
@@ -1671,31 +1636,6 @@ static void pf_memsize (struct cfgst *cfgst, void *parent, struct cfgelem const 
   int const * const elem = cfg_address (cfgst, parent, cfgelem);
   pf_int64_unit (cfgst, *elem, sources, unittab_memsize, "B");
 }
-
-#ifdef DDSI_INCLUDE_ENCRYPTION
-static enum update_result uf_cipher(struct cfgst *cfgst, void *parent, struct cfgelem const * const cfgelem, UNUSED_ARG(int first), const char *value)
-{
-  if (q_security_plugin.cipher_type_from_string)
-  {
-    q_cipherType * const elem = cfg_address (cfgst, parent, cfgelem);
-    if (! q_security_plugin.cipher_type_from_string (value, elem))
-      return cfg_error (cfgst, "%s: undefined value", value);
-  }
-  return URES_SUCCESS;
-}
-
-static void pf_cipher (struct cfgst *cfgst, void *parent, struct cfgelem const * const cfgelem, uint32_t sources)
-{
-  q_cipherType const * const p = cfg_address (cfgst, parent, cfgelem);
-  if (q_security_plugin.cipher_type)
-    cfg_logelem (cfgst, sources, "%s", (q_security_plugin.cipher_type) (*p));
-}
-
-static void pf_key (struct cfgst *cfgst, UNUSED_ARG (void *parent), UNUSED_ARG (struct cfgelem const * const cfgelem), uint32_t sources)
-{
-  cfg_logelem (cfgst, sources, "<hidden, see configfile>");
-}
-#endif /* DDSI_INCLUDE_ENCRYPTION */
 
 static enum update_result uf_tracingOutputFileName (struct cfgst *cfgst, UNUSED_ARG (void *parent), UNUSED_ARG (struct cfgelem const * const cfgelem), UNUSED_ARG (int first), const char *value)
 {
@@ -2301,10 +2241,17 @@ static void free_configured_elements (struct cfgst *cfgst, void *parent, struct 
     free_configured_element (cfgst, parent, ce);
 }
 
-static int matching_name_index (const char *name_w_aliases, const char *name)
+static int matching_name_index (const char *name_w_aliases, const char *name, size_t *partial)
 {
-  const char *ns = name_w_aliases, *p = strchr (ns, '|');
+  const char *ns = name_w_aliases;
+  const char *aliases = strchr (ns, '|');
+  const char *p = aliases;
   int idx = 0;
+  if (partial)
+  {
+    /* may be set later on */
+    *partial = 0;
+  }
   while (p)
   {
     if (ddsrt_strncasecmp (ns, name, (size_t) (p - ns)) == 0 && name[p - ns] == 0)
@@ -2317,7 +2264,24 @@ static int matching_name_index (const char *name_w_aliases, const char *name)
     p = strchr (ns, '|');
     idx++;
   }
-  return (ddsrt_strcasecmp (ns, name) == 0) ? idx : -1;
+  if (ddsrt_strcasecmp (ns, name) == 0)
+    return idx;
+  else
+  {
+    if (partial)
+    {
+      /* try a partial match on the primary name (the aliases are for backwards compatibility,
+       and as partial matches are for hackability, I am of the opinion that backwards
+       compatibility on those is a bit over the top) */
+      size_t max_len = strlen (name);
+      if (aliases && (size_t) (aliases - name_w_aliases) < max_len)
+        max_len = (size_t) (aliases - name_w_aliases);
+      if (ddsrt_strncasecmp (name_w_aliases, name, max_len) == 0)
+        *partial = max_len;
+      /* it may be a partial match, but it is still not a match */
+    }
+    return -1;
+  }
 }
 
 static const struct cfgelem *lookup_element (const char *target, bool *isattr)
@@ -2348,7 +2312,7 @@ static const struct cfgelem *lookup_element (const char *target, bool *isattr)
     }
     for (; cfgelem->name; cfgelem++)
     {
-      if (matching_name_index (cfgelem->name, p) >= 0)
+      if (matching_name_index (cfgelem->name, p, NULL) >= 0)
       {
         /* not supporting chained redirects */
         assert (cfgelem->name[0] != '>');
@@ -2383,12 +2347,16 @@ static int proc_elem_open (void *varg, UNUSED_ARG (uintptr_t parentinfo), UNUSED
         cfgst_push (cfgst, 0, &root_cfgelems[0], cfgst_parent (cfgst));
         cfgst->implicit_toplevel = ITL_INSERTED_2;
       }
+      cfgst->source = (cfgst->source == 0) ? 1 : cfgst->source << 1;
+      cfgst->first_data_in_source = true;
     }
   }
 
   const struct cfgelem *cfgelem = cfgst_tos (cfgst);
   const struct cfgelem *cfg_subelem;
   int moved = 0;
+  size_t partial = 0;
+  const struct cfgelem *partial_match = NULL;
 
   if (cfgelem == NULL)
   {
@@ -2399,11 +2367,12 @@ static int proc_elem_open (void *varg, UNUSED_ARG (uintptr_t parentinfo), UNUSED
   for (cfg_subelem = cfgelem->children; cfg_subelem && cfg_subelem->name && strcmp (cfg_subelem->name, "*") != 0; cfg_subelem++)
   {
     const char *csename = cfg_subelem->name;
+    size_t partial1;
     int idx;
     moved = (csename[0] == '>');
     if (moved)
       csename++;
-    idx = matching_name_index (csename, name);
+    idx = matching_name_index (csename, name, &partial1);
     if (idx > 0)
     {
       if (csename[0] == '|')
@@ -2417,15 +2386,34 @@ static int proc_elem_open (void *varg, UNUSED_ARG (uintptr_t parentinfo), UNUSED
       }
     }
     if (idx >= 0)
+    {
+      /* an exact match is always good */
       break;
+    }
+    if (partial1 > partial)
+    {
+      /* a longer prefix match is a candidate ... */
+      partial = partial1;
+      partial_match = cfg_subelem;
+    }
+    else if (partial1 > 0 && partial1 == partial)
+    {
+      /* ... but an ambiguous prefix match won't do */
+      partial_match = NULL;
+    }
   }
   if (cfg_subelem == NULL || cfg_subelem->name == NULL)
   {
-    cfg_error (cfgst, "%s: unknown element", name);
-    cfgst_push (cfgst, 0, NULL, NULL);
-    return 0;
+    if (partial_match != NULL && cfgst->partial_match_allowed)
+      cfg_subelem = partial_match;
+    else
+    {
+      cfg_error (cfgst, "%s: unknown element", name);
+      cfgst_push (cfgst, 0, NULL, NULL);
+      return 0;
+    }
   }
-  else if (strcmp (cfg_subelem->name, "*") == 0)
+  if (strcmp (cfg_subelem->name, "*") == 0)
   {
     /* Push a marker that we are to ignore this part of the DOM tree */
     cfgst_push (cfgst, 0, NULL, NULL);
@@ -2691,10 +2679,13 @@ static FILE *config_open_file (char *tok, char **cursor, uint32_t domid)
   return fp;
 }
 
-struct cfgst *config_init (const char *configfile, struct config *cfg, uint32_t domid)
+struct cfgst *config_init (const char *config, struct config *cfg, uint32_t domid)
 {
   int ok = 1;
   struct cfgst *cfgst;
+  char env_input[32];
+  char *copy, *cursor;
+  struct ddsrt_xmlp_callbacks cb;
 
   memset (cfg, 0, sizeof (*cfg));
 
@@ -2715,72 +2706,68 @@ struct cfgst *config_init (const char *configfile, struct config *cfg, uint32_t 
      ends up on the right value */
   cfgst->cfg->domainId = domid;
 
-  /* configfile == NULL will get you the default configuration */
-  if (configfile) {
-    char env_input[32];
-    char *copy = ddsrt_strdup (configfile), *cursor = copy;
-    struct ddsrt_xmlp_callbacks cb;
+  cb.attr = proc_attr;
+  cb.elem_close = proc_elem_close;
+  cb.elem_data = proc_elem_data;
+  cb.elem_open = proc_elem_open;
+  cb.error = proc_error;
 
-    cb.attr = proc_attr;
-    cb.elem_close = proc_elem_close;
-    cb.elem_data = proc_elem_data;
-    cb.elem_open = proc_elem_open;
-    cb.error = proc_error;
-
-    while (*cursor && (isspace ((unsigned char) *cursor) || *cursor == ','))
-      cursor++;
-    while (ok && cursor && cursor[0])
+  copy = ddsrt_strdup (config);
+  cursor = copy;
+  while (*cursor && (isspace ((unsigned char) *cursor) || *cursor == ','))
+    cursor++;
+  while (ok && cursor && cursor[0])
+  {
+    struct ddsrt_xmlp_state *qx;
+    FILE *fp;
+    char *tok;
+    tok = cursor;
+    if (tok[0] == '<')
     {
-      struct ddsrt_xmlp_state *qx;
-      FILE *fp;
-      char *tok;
-      tok = cursor;
-      if (tok[0] == '<')
-      {
-        /* Read XML directly from input string */
-        qx = ddsrt_xmlp_new_string (tok, cfgst, &cb);
-        ddsrt_xmlp_set_options (qx, DDSRT_XMLP_ANONYMOUS_CLOSE_TAG | DDSRT_XMLP_MISSING_CLOSE_AS_EOF);
-        fp = NULL;
-        snprintf (env_input, sizeof (env_input), "CYCLONEDDS_URI+%u", (unsigned) (tok - copy));
-        cfgst->input = env_input;
-        cfgst->line = 1;
-      }
-      else if ((fp = config_open_file (tok, &cursor, domid)) == NULL)
-      {
-        ddsrt_free (copy);
-        goto error;
-      }
-      else
-      {
-        qx = ddsrt_xmlp_new_file (fp, cfgst, &cb);
-        cfgst->input = tok;
-        cfgst->line = 1;
-      }
-
-      cfgst->implicit_toplevel = (fp == NULL) ? ITL_ALLOWED : ITL_DISALLOWED;
-      cfgst->first_data_in_source = true;
-      cfgst_push (cfgst, 0, &root_cfgelem, cfgst->cfg);
-      ok = (ddsrt_xmlp_parse (qx) >= 0) && !cfgst->error;
-      assert (!ok ||
-              (cfgst->path_depth == 1 && cfgst->implicit_toplevel == ITL_DISALLOWED) ||
-              (cfgst->path_depth == 1 + (int) cfgst->implicit_toplevel));
-      /* Pop until stack empty: error handling is rather brutal */
-      while (cfgst->path_depth > 0)
-        cfgst_pop (cfgst);
-      if (fp != NULL)
-        fclose (fp);
-      else if (ok)
-        cursor = tok + ddsrt_xmlp_get_bufpos (qx);
-      ddsrt_xmlp_free (qx);
-      assert (fp == NULL || cfgst->implicit_toplevel <= ITL_ALLOWED);
-      if (cursor)
-      {
-        while (*cursor && (isspace ((unsigned char) cursor[0]) || cursor[0] == ','))
-          cursor++;
-      }
+      /* Read XML directly from input string */
+      qx = ddsrt_xmlp_new_string (tok, cfgst, &cb);
+      ddsrt_xmlp_set_options (qx, DDSRT_XMLP_ANONYMOUS_CLOSE_TAG | DDSRT_XMLP_MISSING_CLOSE_AS_EOF);
+      fp = NULL;
+      snprintf (env_input, sizeof (env_input), "CYCLONEDDS_URI+%u", (unsigned) (tok - copy));
+      cfgst->input = env_input;
+      cfgst->line = 1;
     }
-    ddsrt_free (copy);
+    else if ((fp = config_open_file (tok, &cursor, domid)) == NULL)
+    {
+      ddsrt_free (copy);
+      goto error;
+    }
+    else
+    {
+      qx = ddsrt_xmlp_new_file (fp, cfgst, &cb);
+      cfgst->input = tok;
+      cfgst->line = 1;
+    }
+
+    cfgst->implicit_toplevel = (fp == NULL) ? ITL_ALLOWED : ITL_DISALLOWED;
+    cfgst->partial_match_allowed = (fp == NULL);
+    cfgst->first_data_in_source = true;
+    cfgst_push (cfgst, 0, &root_cfgelem, cfgst->cfg);
+    ok = (ddsrt_xmlp_parse (qx) >= 0) && !cfgst->error;
+    assert (!ok ||
+            (cfgst->path_depth == 1 && cfgst->implicit_toplevel == ITL_DISALLOWED) ||
+            (cfgst->path_depth == 1 + (int) cfgst->implicit_toplevel));
+    /* Pop until stack empty: error handling is rather brutal */
+    while (cfgst->path_depth > 0)
+      cfgst_pop (cfgst);
+    if (fp != NULL)
+      fclose (fp);
+    else if (ok)
+      cursor = tok + ddsrt_xmlp_get_bufpos (qx);
+    ddsrt_xmlp_free (qx);
+    assert (fp == NULL || cfgst->implicit_toplevel <= ITL_ALLOWED);
+    if (cursor)
+    {
+      while (*cursor && (isspace ((unsigned char) cursor[0]) || cursor[0] == ','))
+        cursor++;
+    }
   }
+  ddsrt_free (copy);
 
   /* Set defaults for everything not set that we have a default value
      for, signal errors for things unset but without a default. */
@@ -2837,67 +2824,13 @@ struct cfgst *config_init (const char *configfile, struct config *cfg, uint32_t 
     ok = 0;
 #endif
 
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  /* Check security profiles */
-  {
-    struct config_securityprofile_listelem *s = cfgst->cfg->securityProfiles;
-    while (s)
-    {
-      switch (s->cipher)
-      {
-        case Q_CIPHER_UNDEFINED:
-        case Q_CIPHER_NULL:
-          /* nop */
-          if (s->key && strlen(s->key) > 0)
-            DDS_ILOG (DDS_LC_INFO, domid, "config: DDSI2Service/Security/SecurityProfile[@cipherkey]: %s: cipher key not required\n", s->key);
-          break;
-
-        default:
-          /* read the cipherkey if present */
-          if (!s->key || strlen(s->key) == 0)
-          {
-            DDS_ILOG (DDS_LC_ERROR, domid, "config: DDSI2Service/Security/SecurityProfile[@cipherkey]: cipher key missing\n");
-            ok = 0;
-          }
-          else if (q_security_plugin.valid_uri && !(q_security_plugin.valid_uri) (s->cipher, s->key))
-          {
-            DDS_ILOG (DDS_LC_ERROR, domid, "config: DDSI2Service/Security/SecurityProfile[@cipherkey]: %s : incorrect key\n", s->key);
-            ok = 0;
-          }
-      }
-      s = s->next;
-    }
-  }
-#endif /* DDSI_INCLUDE_ENCRYPTION */
-
 #ifdef DDSI_INCLUDE_NETWORK_PARTITIONS
   /* Assign network partition ids */
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  /* also create links from the network partitions to the
-     securityProfiles and signal errors if profiles do not exist */
-#endif /* DDSI_INCLUDE_ENCRYPTION */
   {
     struct config_networkpartition_listelem *p = cfgst->cfg->networkPartitions;
     cfgst->cfg->nof_networkPartitions = 0;
     while (p)
     {
-#ifdef DDSI_INCLUDE_ENCRYPTION
-      if (ddsrt_strcasecmp(p->profileName, "null") == 0)
-        p->securityProfile = NULL;
-      else
-      {
-        struct config_securityprofile_listelem *s = cfgst->cfg->securityProfiles;
-        while (s && ddsrt_strcasecmp(p->profileName, s->name) != 0)
-          s = s->next;
-        if (s)
-          p->securityProfile = s;
-        else
-        {
-          DDS_ILOG (DDS_LC_ERROR, domid, "config: DDSI2Service/Partitioning/NetworkPartitions/NetworkPartition[@securityprofile]: %s: unknown securityprofile\n", p->profileName);
-          ok = 0;
-        }
-      }
-#endif /* DDSI_INCLUDE_ENCRYPTION */
       cfgst->cfg->nof_networkPartitions++;
       /* also use crc32 just like native nw and ordinary ddsi2e, only
          for interoperability because it is asking for trouble &

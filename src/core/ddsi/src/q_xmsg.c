@@ -83,7 +83,7 @@ struct nn_xmsg {
   union {
     char control;
     struct {
-      nn_guid_t wrguid;
+      ddsi_guid_t wrguid;
       seqno_t wrseq;
       nn_fragment_number_t wrfragid;
       /* readerId encodes offset to destination readerId or 0 -- used
@@ -191,7 +191,7 @@ struct nn_xpack
   bool async_mode;
   Header_t hdr;
   MsgLen_t msg_len;
-  nn_guid_prefix_t *last_src;
+  ddsi_guid_prefix_t *last_src;
   InfoDST_t *last_dst;
   int64_t maxdelay;
   unsigned packetid;
@@ -223,13 +223,6 @@ struct nn_xpack
 #ifdef DDSI_INCLUDE_NETWORK_PARTITIONS
   uint32_t encoderId;
 #endif /* DDSI_INCLUDE_NETWORK_PARTITIONS */
-
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  /* each partion is associated with a SecurityPolicy, this codecset will serve */
-  /* all of them, different cipher for each partition */
-  q_securityEncoderSet codec;
-  PT_InfoContainer_t SecurityHeader;
-#endif /* DDSI_INCLUDE_ENCRYPTION */
 };
 
 static size_t align4u (size_t x)
@@ -329,7 +322,7 @@ static struct nn_xmsg *nn_xmsg_allocnew (struct nn_xmsgpool *pool, size_t expect
   return m;
 }
 
-struct nn_xmsg *nn_xmsg_new (struct nn_xmsgpool *pool, const nn_guid_prefix_t *src_guid_prefix, size_t expected_size, enum nn_xmsg_kind kind)
+struct nn_xmsg *nn_xmsg_new (struct nn_xmsgpool *pool, const ddsi_guid_prefix_t *src_guid_prefix, size_t expected_size, enum nn_xmsg_kind kind)
 {
   struct nn_xmsg *m;
   if ((m = nn_freelist_pop (&pool->freelist)) != NULL)
@@ -460,7 +453,7 @@ enum nn_xmsg_kind nn_xmsg_kind (const struct nn_xmsg *m)
   return m->kind;
 }
 
-void nn_xmsg_guid_seq_fragid (const struct nn_xmsg *m, nn_guid_t *wrguid, seqno_t *wrseq, nn_fragment_number_t *wrfragid)
+void nn_xmsg_guid_seq_fragid (const struct nn_xmsg *m, ddsi_guid_t *wrguid, seqno_t *wrseq, nn_fragment_number_t *wrfragid)
 {
   assert (m->kind != NN_XMSG_KIND_CONTROL);
   *wrguid = m->kindspecific.data.wrguid;
@@ -577,7 +570,7 @@ void nn_xmsg_serdata (struct nn_xmsg *m, struct ddsi_serdata *serdata, size_t of
   }
 }
 
-void nn_xmsg_setdst1 (struct nn_xmsg *m, const nn_guid_prefix_t *gp, const nn_locator_t *loc)
+void nn_xmsg_setdst1 (struct nn_xmsg *m, const ddsi_guid_prefix_t *gp, const nn_locator_t *loc)
 {
   assert (m->dstmode == NN_XMSG_DST_UNSET);
   m->dstmode = NN_XMSG_DST_ONE;
@@ -620,7 +613,7 @@ void nn_xmsg_setdstN (struct nn_xmsg *m, struct addrset *as, struct addrset *as_
   m->dstaddr.all.as_group = ref_addrset (as_group);
 }
 
-void nn_xmsg_set_data_readerId (struct nn_xmsg *m, nn_entityid_t *readerId)
+void nn_xmsg_set_data_readerId (struct nn_xmsg *m, ddsi_entityid_t *readerId)
 {
   assert (m->kind == NN_XMSG_KIND_DATA_REXMIT);
   assert (m->kindspecific.data.readerId_off == 0);
@@ -633,21 +626,21 @@ static void clear_readerId (struct nn_xmsg *m)
 {
   assert (m->kind == NN_XMSG_KIND_DATA_REXMIT);
   assert (m->kindspecific.data.readerId_off != 0);
-  *((nn_entityid_t *) (m->data->payload + m->kindspecific.data.readerId_off)) =
+  *((ddsi_entityid_t *) (m->data->payload + m->kindspecific.data.readerId_off)) =
     nn_hton_entityid (to_entityid (NN_ENTITYID_UNKNOWN));
 }
 
-static nn_entityid_t load_readerId (const struct nn_xmsg *m)
+static ddsi_entityid_t load_readerId (const struct nn_xmsg *m)
 {
   assert (m->kind == NN_XMSG_KIND_DATA_REXMIT);
   assert (m->kindspecific.data.readerId_off != 0);
-  return nn_ntoh_entityid (*((nn_entityid_t *) (m->data->payload + m->kindspecific.data.readerId_off)));
+  return nn_ntoh_entityid (*((ddsi_entityid_t *) (m->data->payload + m->kindspecific.data.readerId_off)));
 }
 
 static int readerId_compatible (const struct nn_xmsg *m, const struct nn_xmsg *madd)
 {
-  nn_entityid_t e = load_readerId (m);
-  nn_entityid_t eadd = load_readerId (madd);
+  ddsi_entityid_t e = load_readerId (m);
+  ddsi_entityid_t eadd = load_readerId (madd);
   return e.u == NN_ENTITYID_UNKNOWN || e.u == eadd.u;
 }
 
@@ -750,13 +743,13 @@ int nn_xmsg_setencoderid (struct nn_xmsg *msg, uint32_t encoderid)
 }
 #endif
 
-void nn_xmsg_setwriterseq (struct nn_xmsg *msg, const nn_guid_t *wrguid, seqno_t wrseq)
+void nn_xmsg_setwriterseq (struct nn_xmsg *msg, const ddsi_guid_t *wrguid, seqno_t wrseq)
 {
   msg->kindspecific.data.wrguid = *wrguid;
   msg->kindspecific.data.wrseq = wrseq;
 }
 
-void nn_xmsg_setwriterseq_fragid (struct nn_xmsg *msg, const nn_guid_t *wrguid, seqno_t wrseq, nn_fragment_number_t wrfragid)
+void nn_xmsg_setwriterseq_fragid (struct nn_xmsg *msg, const ddsi_guid_t *wrguid, seqno_t wrseq, nn_fragment_number_t wrfragid)
 {
   nn_xmsg_setwriterseq (msg, wrguid, wrseq);
   msg->kindspecific.data.wrfragid = wrfragid;
@@ -838,7 +831,7 @@ int nn_xmsg_addpar_sentinel_ifparam (struct nn_xmsg * m)
 
 static void nn_xmsg_chain_release (struct q_globals *gv, struct nn_xmsg_chain *chain)
 {
-  nn_guid_t wrguid;
+  ddsi_guid_t wrguid;
   memset (&wrguid, 0, sizeof (wrguid));
 
   while (chain->latest)
@@ -868,7 +861,7 @@ static void nn_xmsg_chain_release (struct q_globals *gv, struct nn_xmsg_chain *c
         assert (m->kindspecific.data.wrseq != 0);
         wrguid = m->kindspecific.data.wrguid;
         if ((wr = ephash_lookup_writer_guid (gv->guid_hash, &m->kindspecific.data.wrguid)) != NULL)
-          UPDATE_SEQ_XMIT_UNLOCKED(wr, m->kindspecific.data.wrseq);
+          writer_update_seq_xmit (wr, m->kindspecific.data.wrseq);
       }
     }
 
@@ -1001,16 +994,6 @@ struct nn_xpack * nn_xpack_new (ddsi_tran_conn_t conn, uint32_t bw_limit, bool a
   if (xp->gv->thread_pool)
     ddsi_sem_init (&xp->sem, 0);
 
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  if (q_security_plugin.new_encoder)
-  {
-    xp->codec = (q_security_plugin.new_encoder) ();
-    xp->SecurityHeader.smhdr.submessageId = SMID_PT_INFO_CONTAINER;
-    xp->SecurityHeader.smhdr.flags = (DDSRT_LITTLE_ENDIAN ? SMFLAG_ENDIANNESS : 0);
-    xp->SecurityHeader.smhdr.octetsToNextHeader = 4;
-    xp->SecurityHeader.id = PTINFO_ID_ENCRYPT;
-  }
-#endif
 #ifdef DDSI_INCLUDE_BANDWIDTH_LIMITING
   nn_bw_limit_init (&xp->limiter, bw_limit);
 #else
@@ -1023,12 +1006,6 @@ void nn_xpack_free (struct nn_xpack *xp)
 {
   assert (xp->niov == 0);
   assert (xp->included_msgs.latest == NULL);
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  if (q_security_plugin.free_encoder)
-  {
-    (q_security_plugin.free_encoder) (xp->codec);
-  }
-#endif
   if (xp->gv->thread_pool)
     ddsi_sem_destroy (&xp->sem);
   ddsrt_free (xp->iov);
@@ -1059,34 +1036,23 @@ static ssize_t nn_xpack_send1 (const nn_locator_t *loc, void * varg)
     }
   }
 
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  if (q_security_plugin.send_encoded && xp->encoderId != 0 && (q_security_plugin.encoder_type) (xp->codec, xp->encoderId) != Q_CIPHER_NONE)
+  if (!gv->mute)
   {
-    struct iovec iov[NN_XMSG_MAX_MESSAGE_IOVECS];
-    memcpy (iov, xp->iov, sizeof (iov));
-    nbytes = (q_security_plugin.send_encoded) (xp->conn, loc, xp->niov, iov, &xp->codec, xp->encoderId, xp->call_flags);
+    nbytes = ddsi_conn_write (xp->conn, loc, xp->niov, xp->iov, xp->call_flags);
+#ifndef NDEBUG
+    {
+      size_t i, len;
+      for (i = 0, len = 0; i < xp->niov; i++) {
+        len += xp->iov[i].iov_len;
+      }
+      assert (nbytes == -1 || (size_t) nbytes == len);
+    }
+#endif
   }
   else
-#endif
   {
-    if (!gv->mute)
-    {
-      nbytes = ddsi_conn_write (xp->conn, loc, xp->niov, xp->iov, xp->call_flags);
-#ifndef NDEBUG
-      {
-        size_t i, len;
-        for (i = 0, len = 0; i < xp->niov; i++) {
-          len += xp->iov[i].iov_len;
-        }
-        assert (nbytes == -1 || (size_t) nbytes == len);
-      }
-#endif
-    }
-    else
-    {
-      GVTRACE ("(dropped)");
-      nbytes = (ssize_t) xp->msg_len.length;
-    }
+    GVTRACE ("(dropped)");
+    nbytes = (ssize_t) xp->msg_len.length;
   }
 
   /* Clear call flags, as used on a per call basis */
@@ -1352,16 +1318,6 @@ static int nn_xpack_mayaddmsg (const struct nn_xpack *xp, const struct nn_xmsg *
 
   payload_size = m->refd_payload ? (unsigned) m->refd_payload_iov.iov_len : 0;
 
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  if (xp->encoderId)
-  {
-    unsigned security_header;
-    security_header = (q_security_plugin.header_size) (xp->codec, xp->encoderId);
-    assert (security_header < max_msg_size);
-    max_msg_size -= security_header;
-  }
-#endif
-
   /* Check if max message size exceeded */
 
   if (xp->msg_len.length + m->sz + payload_size > max_msg_size)
@@ -1385,7 +1341,7 @@ static int nn_xpack_mayaddmsg (const struct nn_xpack *xp, const struct nn_xmsg *
   return addressing_info_eq_onesidederr (xp, m);
 }
 
-static int guid_prefix_eq (const nn_guid_prefix_t *a, const nn_guid_prefix_t *b)
+static int guid_prefix_eq (const ddsi_guid_prefix_t *a, const ddsi_guid_prefix_t *b)
 {
   return a->u[0] == b->u[0] && a->u[1] == b->u[1] && a->u[2] == b->u[2];
 }
@@ -1395,7 +1351,7 @@ int nn_xpack_addmsg (struct nn_xpack *xp, struct nn_xmsg *m, const uint32_t flag
   /* Returns > 0 if pack got sent out before adding m */
   struct q_globals const * const gv = xp->gv;
   static InfoDST_t static_zero_dst = {
-    { SMID_INFO_DST, (DDSRT_ENDIAN == DDSRT_LITTLE_ENDIAN ? SMFLAG_ENDIANNESS : 0), sizeof (nn_guid_prefix_t) },
+    { SMID_INFO_DST, (DDSRT_ENDIAN == DDSRT_LITTLE_ENDIAN ? SMFLAG_ENDIANNESS : 0), sizeof (ddsi_guid_prefix_t) },
     { { 0,0,0,0, 0,0,0,0, 0,0,0,0 } }
   };
   InfoDST_t *dst;
@@ -1477,17 +1433,6 @@ int nn_xpack_addmsg (struct nn_xpack *xp, struct nn_xmsg *m, const uint32_t flag
 
 #ifdef DDSI_INCLUDE_NETWORK_PARTITIONS
     xp->encoderId = m->encoderid;
-#endif
-#ifdef DDSI_INCLUDE_ENCRYPTION
-    if (xp->encoderId > 0 && (q_security_plugin.encoder_type) (xp->codec, xp->encoderId) != Q_CIPHER_NONE)
-    {
-      /* Insert a reference to the security header
-         the correct size will be set upon encryption in q_xpack_sendmsg_encoded */
-      xp->iov[niov].iov_base = (void*) &xp->SecurityHeader;
-      xp->iov[niov].iov_len = sizeof (xp->SecurityHeader);
-      sz += xp->iov[niov].iov_len;
-      niov++;
-    }
 #endif
     xp->last_src = &xp->hdr.guid_prefix;
     xp->last_dst = NULL;

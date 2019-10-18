@@ -949,7 +949,7 @@ int rtps_init (struct q_globals *gv)
       }
     }
   }
-  
+
   assert ((gv->config.allowMulticast & AMC_DEFAULT) == 0);
   if (set_recvips (gv) < 0)
     goto err_set_recvips;
@@ -1001,14 +1001,6 @@ int rtps_init (struct q_globals *gv)
   gv->xmsgpool = nn_xmsgpool_new ();
   gv->serpool = ddsi_serdatapool_new ();
 
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  if (q_security_plugin.new_decoder)
-  {
-    gv->recvSecurityCodec = (q_security_plugin.new_decoder) ();
-    GVLOG (DDS_LC_CONFIG, "decoderset created\n");
-  }
-#endif
-
   nn_plist_init_default_participant (&gv->default_plist_pp);
   nn_plist_init_default_participant (&gv->default_local_plist_pp);
   nn_xqos_init_default_reader (&gv->default_xqos_rd);
@@ -1027,7 +1019,7 @@ int rtps_init (struct q_globals *gv)
   ddsrt_mutex_init (&gv->participant_set_lock);
   ddsrt_cond_init (&gv->participant_set_cond);
   lease_management_init (gv);
-  gv->deleted_participants = deleted_participants_admin_new (gv->config.prune_deleted_ppant.delay);
+  gv->deleted_participants = deleted_participants_admin_new (&gv->logconfig, gv->config.prune_deleted_ppant.delay);
   gv->guid_hash = ephash_new (gv);
 
   ddsrt_mutex_init (&gv->privileged_pp_lock);
@@ -1135,7 +1127,7 @@ int rtps_init (struct q_globals *gv)
   if (gv->m_factory->m_connless)
   {
     if (!(gv->config.many_sockets_mode == MSM_NO_UNICAST && gv->config.allowMulticast))
-      GVTRACE ("Unicast Ports: discovery %"PRIu32" data %"PRIu32"\n", ddsi_conn_port (gv->disc_conn_uc), ddsi_conn_port (gv->data_conn_uc));
+      GVLOG (DDS_LC_CONFIG, "Unicast Ports: discovery %"PRIu32" data %"PRIu32"\n", ddsi_conn_port (gv->disc_conn_uc), ddsi_conn_port (gv->data_conn_uc));
 
     if (gv->config.allowMulticast)
     {
@@ -1189,7 +1181,7 @@ int rtps_init (struct q_globals *gv)
   /* Create shared transmit connection */
 
   gv->tev_conn = gv->data_conn_uc;
-  GVTRACE ("Timed event transmit port: %d\n", (int) ddsi_conn_port (gv->tev_conn));
+  GVLOG (DDS_LC_CONFIG, "Timed event transmit port: %d\n", (int) ddsi_conn_port (gv->tev_conn));
 
 #ifdef DDSI_INCLUDE_NETWORK_CHANNELS
   {
@@ -1217,7 +1209,7 @@ int rtps_init (struct q_globals *gv)
       {
         chptr->transmit_conn = gv->data_conn_uc;
       }
-      GVTRACE ("channel %s: transmit port %d\n", chptr->name, (int) ddsi_tran_port (chptr->transmit_conn));
+      GVLOG (DDS_LC_CONFIG, "channel %s: transmit port %d\n", chptr->name, (int) ddsi_tran_port (chptr->transmit_conn));
 
 #ifdef DDSI_INCLUDE_BANDWIDTH_LIMITING
       if (chptr->auxiliary_bandwidth_limit > 0 || lookup_thread_properties (tname))
@@ -1337,10 +1329,6 @@ err_unicast_sockets:
   ddsrt_cond_destroy (&gv->participant_set_cond);
   ddsrt_mutex_destroy (&gv->participant_set_lock);
   free_special_topics (gv);
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  if (q_security_plugin.free_decoder)
-    q_security_plugin.free_decoder (gv->recvSecurityCodec);
-#endif
   nn_xqos_fini (&gv->builtin_endpoint_xqos_wr);
   nn_xqos_fini (&gv->builtin_endpoint_xqos_rd);
   nn_xqos_fini (&gv->spdp_endpoint_xqos);
@@ -1498,12 +1486,6 @@ void rtps_stop (struct q_globals *gv)
   nn_reorder_free (gv->spdp_reorder);
   nn_defrag_free (gv->spdp_defrag);
   ddsrt_mutex_destroy (&gv->spdp_lock);
-#ifdef DDSI_INCLUDE_ENCRYPTION
-  if (q_security_plugin.free_decoder)
-  {
-    (q_security_plugin.free_decoder) (gv->recvSecurityCodec);
-  }
-#endif /* DDSI_INCLUDE_ENCRYPTION */
 
   {
     struct ephash_enum_proxy_participant est;

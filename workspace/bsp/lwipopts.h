@@ -14,6 +14,7 @@
 #define __LWIP_MULTICAST_PING MakeString( Stringize, LWIP_MULTICAST_PING )
 #define __SO_REUSE            MakeString( Stringize, SO_REUSE )
 #define __LWIP_AUTOIP         MakeString( Stringize, LWIP_AUTOIP )
+#define __LWIP_DHCP           MakeString( Stringize, LWIP_DHCP )
 #endif
 
 #if defined(LWIP_IGMP)
@@ -36,6 +37,7 @@
 #ifdef SHOW_MESSAGE
 #pragma message("lwip_multicast_ping has been defined (" __LWIP_MULTICAST_PING ")")
 #endif
+#undef LWIP_MULTICAST_PING
 #endif
 #define LWIP_MULTICAST_PING 1
 
@@ -43,6 +45,7 @@
 #ifdef SHOW_MESSAGE
 #pragma message("so_reuse has been defined (" __SO_REUSE ")")
 #endif
+#undef SO_REUSE
 #endif
 #define SO_REUSE 1
 
@@ -52,6 +55,14 @@
 #endif
 #undef LWIP_AUTOIP
 #endif
-#define LWIP_AUTOIP 1
+#define LWIP_AUTOIP 0
+
+#if defined(LWIP_DHCP)
+#ifdef SHOW_MESSAGE
+#pragma message("lwip_dhcp has been defined (" __LWIP_DHCP ")")
+#endif
+#undef LWIP_DHCP
+#endif
+#define LWIP_DHCP 0
 
 #endif

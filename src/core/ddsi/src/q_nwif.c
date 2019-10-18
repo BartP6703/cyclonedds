@@ -465,6 +465,7 @@ int find_own_ip (struct q_globals *gv, const char *requested_address)
     int q = 0;
 
     ddsrt_strlcpy(if_name, ifa->name, sizeof(if_name));
+    printf ("if_name: \'%s\'\n", if_name);
 
     if (strcmp (if_name, last_if_name))
       GVLOG (DDS_LC_CONFIG, "%s%s", sep, if_name);
@@ -473,6 +474,8 @@ int find_own_ip (struct q_globals *gv, const char *requested_address)
     /* interface must be up */
     if ((ifa->flags & IFF_UP) == 0) {
       GVLOG (DDS_LC_CONFIG, " (interface down)");
+      /*printf("interface down, but accepted\n");*/
+      /*ifa->flags |= IFF_UP;*/
       continue;
     } else if (ddsrt_sockaddr_isunspecified(ifa->addr)) {
       GVLOG (DDS_LC_CONFIG, " (address unspecified)");
@@ -576,7 +579,12 @@ int find_own_ip (struct q_globals *gv, const char *requested_address)
       gv->interfaces[gv->n_interfaces].netmask.port = NN_LOCATOR_PORT_INVALID;
       memset(&gv->interfaces[gv->n_interfaces].netmask.address, 0, sizeof(gv->interfaces[gv->n_interfaces].netmask.address));
     }
-    gv->interfaces[gv->n_interfaces].mc_capable = ((ifa->flags & IFF_MULTICAST) != 0);
+    if ((ifa->flags & IFF_MULTICAST) != 0) {
+      printf("multicast -> mc_capable = true\n");
+    } else {
+      printf("!multicast -> mc_capable = false\n");
+    }
+    gv->interfaces[gv->n_interfaces].mc_capable = ((ifa->flags & IFF_MULTICAST) == 0);
     gv->interfaces[gv->n_interfaces].mc_flaky = ((ifa->type == DDSRT_IFTYPE_WIFI) != 0);
     gv->interfaces[gv->n_interfaces].point_to_point = ((ifa->flags & IFF_POINTOPOINT) != 0);
     gv->interfaces[gv->n_interfaces].if_index = ifa->index;
