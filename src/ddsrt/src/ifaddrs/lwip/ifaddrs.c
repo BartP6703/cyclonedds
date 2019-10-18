@@ -11,9 +11,8 @@
  */
 #include <assert.h>
 #include <string.h>
-#include <pthread.h>
 #include <lwip/inet.h>
-#include <lwip/netif.h> /* netif_list, netif_mutex */
+#include <lwip/netif.h> /* netif_list */
 #include <lwip/sockets.h>
 
 #include "dds/ddsrt/heap.h"
@@ -131,7 +130,7 @@ ddsrt_getifaddrs(
 {
   dds_return_t rc = DDS_RETCODE_OK;
   int use_ip4, use_ip6;
-  struct netif netif;
+  struct netif *netif;
   ddsrt_ifaddrs_t *ifa, *next_ifa, *root_ifa;
 
   assert(ifap != NULL);
@@ -156,7 +155,7 @@ ddsrt_getifaddrs(
        netif = netif->next)
   {
     if (use_ip4 && IP_IS_V4(&netif.ip_addr)) {
-      rc = copyaddr(&next_ifa, &netif, &netif.ip_addr);
+      rc = copyaddr(&next_ifa, netif, &netif->ip_addr);
       if (rc == DDS_RETCODE_OK) {
         if (ifa == NULL) {
           ifa = root_ifa = next_ifa;
@@ -164,6 +163,7 @@ ddsrt_getifaddrs(
           ifa->next = next_ifa;
           ifa = next_ifa;
         }
+      }
     }
 
 #if DDSRT_HAVE_IPV6
@@ -197,8 +197,6 @@ again:
     }
 #endif
   }
-
-  pthread_mutex_unlock(&netif_mutex);
 
   if (rc == DDS_RETCODE_OK) {
     *ifap = ifa;
