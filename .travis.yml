@@ -37,6 +37,23 @@ submit_to_coverity_scan: &submit_to_coverity_scan
                "https://scan.coverity.com/builds";
   fi
 
+linux_gcc7: &linux_gcc7
+  os: linux
+  dist: xenial
+  compiler: gcc
+  addons:
+    apt:
+      update: true
+      sources: [ ubuntu-toolchain-r-test ]
+      packages: [ gcc-7 g++-7 ]
+  before_install:
+    - eval "export CC=gcc-7"
+    - eval "export CXX=g++-7"
+    - eval "export COV_COMPTYPE=gcc COV_PLATFORM=linux64"
+  install:
+    - *install_coverity
+    - pip install conan --upgrade --user
+
 linux_gcc8: &linux_gcc8
   os: linux
   dist: xenial
@@ -177,7 +194,7 @@ jobs:
       env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=YES, GENERATOR="Visual Studio 15 2017 Win64" ]
     - <<: *windows_vs2017
       env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Release, SSL=YES, GENERATOR="Visual Studio 15 2017 Win64" ]
-    - <<: *linux_gcc8
+    - <<: *linux_gcc7
       env: [ ARCH=x86_64, ASAN=none, BUILD_TYPE=Debug, SSL=NO, FREERTOS=YES, LWIP=YES, GENERATOR="Unix Makefiles" ]
 
 before_script:
@@ -225,7 +242,7 @@ script:
       cmake ..;
       cp ../../../../../lwipcfg.h ../../../../examples/example_app;
       cmake --build . --target all;
-      cd ../../../../../../../freertos-posix;
+      cd ../../../../../..;
       mkdir -p build;
       cd build;
       cmake -DCMAKE_INSTALL_PREFIX=$(pwd)/install ..;
