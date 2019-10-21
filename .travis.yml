@@ -280,7 +280,7 @@ script:
             -DENABLE_SSL=${SSL}
             -DBUILD_TESTING=on
             -DWERROR=on
-            -G "${GENERATOR}" ..;
+            -G "${GENERATOR}" .. || true;
     fi
   - case "${GENERATOR}" in
       "Unix Makefiles")
