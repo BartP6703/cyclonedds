@@ -210,7 +210,7 @@ script:
       cmake --build . --target install;
       cd ../../..;
     fi
- - if [ "${LWIP}" != "NO" ]; then
+  - if [ "${LWIP}" != "NO" ]; then
       cd ports/freertos-posix/lwip;
       git clone https://git.savannah.nongnu.org/git/lwip.git;
       cd lwip;
