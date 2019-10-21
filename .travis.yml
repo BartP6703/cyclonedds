@@ -225,7 +225,7 @@ script:
       cmake ..;
       cp ../../../../../lwipcfg.h ../../../../examples/example_app;
       cmake --build . --target all;
-      cd ../../../../../../../ports/freertos-posix;
+      cd ../../../../../../../freertos-posix;
       mkdir -p build;
       cd build;
       cmake -DCMAKE_INSTALL_PREFIX=$(pwd)/install ..;
