@@ -310,7 +310,7 @@ script:
         CMAKE_LINKER_FLAGS="-DCMAKE_LINKER_FLAGS=-fsanitize=${USE_SANITIZER}";
         CMAKE_C_FLAGS="-DCMAKE_C_FLAGS=-fsanitize=${USE_SANITIZER}";
       fi;
-      mkdir install/share/CycloneDDS/examples/helloworld/build'
+      mkdir install/share/CycloneDDS/examples/helloworld/build;
       cd install/share/CycloneDDS/examples/helloworld/build;
       cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
             ${CMAKE_C_FLAGS}
