@@ -280,8 +280,9 @@ before_script:
 #     code has been vetted, the test has been run a great many times (with the odd
 #     failure), and so we now simply skip the test to avoid the spurious failures.
 script:
+  - *freertos
   - if [ "${FREERTOS}" = "true" ]; then
-      *freertos;
+      echo "with freertos (2)";
     else
       echo "without freertos";
       mkdir build;
