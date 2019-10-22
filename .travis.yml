@@ -74,6 +74,9 @@ freertos: &freertos
       echo "without lwip";
       WITH_LWIP=off;
     fi;
+    mkdir build;
+    cd build;
+    conan install -b missing -s arch=${ARCH} -s build_type=${BUILD_TYPE} ..;
     cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
           -DCMAKE_TOOLCHAIN_FILE=../ports/freertos-posix/toolchain.cmake
           -DCMAKE_INSTALL_PREFIX=$(pwd)/install
