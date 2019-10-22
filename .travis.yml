@@ -64,7 +64,6 @@ linux_gcc7: &linux_gcc7
     - eval "export COV_COMPTYPE=gcc COV_PLATFORM=linux64"
   install:
     - *install_coverity
-    - *freertos
     - pip install conan --upgrade --user
 
 linux_gcc8: &linux_gcc8
@@ -82,7 +81,6 @@ linux_gcc8: &linux_gcc8
     - eval "export COV_COMPTYPE=gcc COV_PLATFORM=linux64"
   install:
     - *install_coverity
-    - *freertos
     - pip install conan --upgrade --user
 
 linux_clang: &linux_clang
@@ -232,8 +230,7 @@ before_script:
 #     code has been vetted, the test has been run a great many times (with the odd
 #     failure), and so we now simply skip the test to avoid the spurious failures.
 script:
-  - echo "script: FREERTOS:${FREERTOS}"
-  - echo "script: LWIP:${LWIP}"
+  - *freertos
   - mkdir build
   - cd build
   - conan install -b missing -s arch=${ARCH} -s build_type=${BUILD_TYPE} ..
