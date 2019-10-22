@@ -38,8 +38,6 @@ submit_to_coverity_scan: &submit_to_coverity_scan
   fi
 
 freertos: &freertos
-  echo "freertos: FREERTOS:${FREERTOS}";
-  echo "freertos: LWIP:${LWIP}";
   if [ "${FREERTOS}" = "true" ]; then
     echo "with freertos";
     if [ "${LWIP}" = "true" ]; then
