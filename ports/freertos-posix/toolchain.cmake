@@ -8,8 +8,8 @@ set(library_paths "-L${CMAKE_CURRENT_LIST_DIR}/build/install/FreeRTOS-Sim/lib -L
 set(c_libraries "-lfreertos-sim -lfreertos-sim-loader -lpthread -llwipcore -llwipcontribportunix")
 set(cxx_libraries "${c_libraries}")
 
-set(CMAKE_C_COMPILER "/usr/bin/gcc-7")
-set(CMAKE_CXX_COMPILER "/usr/bin/g++-7")
+set(CMAKE_C_COMPILER "/usr/bin/gcc")
+set(CMAKE_CXX_COMPILER "/usr/bin/g++")
 
 set(CMAKE_C_FLAGS "${include_paths} ${c_flags} ${defines}")
 set(CMAKE_CXX_FLAGS "${include_paths} ${cxx_flags} ${defines}")
