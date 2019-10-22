@@ -72,7 +72,7 @@ freertos: &freertos
       cd ../../..;
     else
       echo "without lwip";
-      WITH_LWIP=off
+      WITH_LWIP=off;
     fi;
     cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
           -DCMAKE_TOOLCHAIN_FILE=../ports/freertos-posix/toolchain.cmake
