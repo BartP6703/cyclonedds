@@ -168,14 +168,6 @@ if(${CMAKE_GENERATOR} STREQUAL "Xcode")
   set (CMAKE_XCODE_ATTRIBUTE_GCC_WARN_ABOUT_MISSING_PROTOTYPES YES)
 endif()
 
-if(WITH_FREERTOS)
-  message(STATUS "WITH_FREERTOS set")
-else ()
-  message(STATUS "WITH_FREERTOS not set")
-endif()
-
-message(STATUS "CMAKE_TOOLCHAIN_FILE:${CMAKE_TOOLCHAIN_FILE}")
-
 # Make it easy to enable one of Clang's/gcc's analyzers, and default to using
 # the address sanitizer for ordinary debug builds; gcc is giving some grief on
 # Travis, so don't enable it for gcc by default
