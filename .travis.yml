@@ -39,7 +39,6 @@ submit_to_coverity_scan: &submit_to_coverity_scan
 
 freertos: &freertos
   if [ "${FREERTOS}" = "true" ]; then
-    echo "with freertos (1)";
     cd ports/freertos-posix;
     git clone https://github.com/shlinym/FreeRTOS-Sim.git;
     mkdir build;
@@ -48,7 +47,6 @@ freertos: &freertos
     cmake --build . --target install;
     cd ../../..;
     if [ "${LWIP}" = "true" ]; then
-      echo "with lwip";
       WITH_LWIP=on
       cd ports/freertos-posix/lwip;
       git clone https://git.savannah.nongnu.org/git/lwip.git;
@@ -71,7 +69,6 @@ freertos: &freertos
       cmake --build . --target install;
       cd ../../..;
     else
-      echo "without lwip";
       WITH_LWIP=off;
     fi;
     mkdir build;
@@ -98,8 +95,6 @@ freertos: &freertos
         ;;
     esac;
     CYCLONEDDS_URI='<CycloneDDS><Domain><General><NetworkInterfaceAddress>lo0</NetworkInterfaceAddress></General><Internal><EnableExpensiveChecks>all</EnableExpensiveChecks></Internal><Tracing><Verbosity>finest</Verbosity><OutputFile>lite.log</OutputFile></Tracing></Domain></CycloneDDS>' ctest -j 1 --output-on-failure -T test -R "ddsrt_atomics|ddsrt_environ|ddsrt_heap|ddsrt_getifaddrs|ddsrt_sync|ddsrt_strtoll|ddsrt_thread|ddsrt_strcasecmp|ddsrt_strncasecmp|dds_log|ddsrt_random|ddsrt_strlcpy|ddsrt_strlcat|ddsrt_sockaddrfromstr|ddsrt_sockaddrtostr|ddsrt_sockets|ddsrt_gethostbyname|ddsrt_select|ddsrt_listener|ddsc_qos|ddsc_listener|ddsc_participant_lookup_none|ddsc_publisher_coherency" -E "ddsc_listener_propagation|ddsc_listener_matched|ddsc_listener_publication_matched|ddsc_listener_subscription_matched|ddsc_listener_incompatible_qos|ddsc_listener_data_available|ddsc_listener_data_available_delete_writer|ddsc_listener_data_available_delete_writer_disposed|ddsc_listener_data_on_readers|ddsc_listener_sample_lost|ddsc_listener_sample_rejected|ddsc_listener_liveliness_changed" -C ${BUILD_TYPE};
-  else
-    echo "without freertos";
   fi
 
 linux_gcc: &linux_gcc
@@ -279,9 +274,7 @@ before_script:
 script:
   - *freertos
   - if [ "${FREERTOS}" = "true" ]; then
-      echo "with freertos (2)";
     else
-      echo "without freertos";
       mkdir build;
       cd build;
       conan install -b missing -s arch=${ARCH} -s build_type=${BUILD_TYPE} ..;
