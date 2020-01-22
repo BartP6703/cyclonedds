@@ -18,39 +18,32 @@ include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
 
 set(PACKAGING_MODULE_DIR "${PROJECT_SOURCE_DIR}/cmake/Modules/Packaging")
-set(CMAKE_INSTALL_CMAKEDIR "${CMAKE_INSTALL_DATADIR}/${CMAKE_PROJECT_NAME}")
+set(CMAKE_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
 
 # Generates <Package>Config.cmake.
-if(BUILD_IDLC)
-  configure_package_config_file(
-    "${PACKAGING_MODULE_DIR}/PackageConfig.cmake.in"
-    "${CMAKE_PROJECT_NAME}Config.cmake"
-    INSTALL_DESTINATION "${CMAKE_INSTALL_CMAKEDIR}")
-else()
-  configure_package_config_file(
-    "${PACKAGING_MODULE_DIR}/PackageConfigNoIdlc.cmake.in"
-    "${CMAKE_PROJECT_NAME}Config.cmake"
-    INSTALL_DESTINATION "${CMAKE_INSTALL_CMAKEDIR}")
-endif()
+configure_package_config_file(
+  "${PACKAGING_MODULE_DIR}/PackageConfig.cmake.in"
+  "${PROJECT_NAME}Config.cmake"
+  INSTALL_DESTINATION "${CMAKE_INSTALL_CMAKEDIR}")
 
 # Generates <Package>Version.cmake.
 write_basic_package_version_file(
-  "${CMAKE_PROJECT_NAME}Version.cmake"
+  "${PROJECT_NAME}Version.cmake"
   VERSION ${PROJECT_VERSION}
   COMPATIBILITY SameMajorVersion)
 
 install(
-  FILES "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}Config.cmake"
-        "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}Version.cmake"
+  FILES "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Version.cmake"
   DESTINATION "${CMAKE_INSTALL_CMAKEDIR}" COMPONENT dev)
 
 if((NOT DEFINED BUILD_SHARED_LIBS) OR BUILD_SHARED_LIBS)
   # Generates <Package>Targets.cmake file included by <Package>Config.cmake.
   # The files are placed in CMakeFiles/Export in the build tree.
   install(
-    EXPORT "${CMAKE_PROJECT_NAME}"
-    FILE "${CMAKE_PROJECT_NAME}Targets.cmake"
-    NAMESPACE "${CMAKE_PROJECT_NAME}::"
+    EXPORT "${PROJECT_NAME}"
+    FILE "${PROJECT_NAME}Targets.cmake"
+    NAMESPACE "${PROJECT_NAME}::"
     DESTINATION "${CMAKE_INSTALL_CMAKEDIR}" COMPONENT dev)
 endif()
 
@@ -61,7 +54,7 @@ set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
 set(CPACK_PACKAGE_VERSION_TWEAK ${PROJECT_VERSION_TWEAK})
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
 
-set(CPACK_PACKAGE_NAME ${CMAKE_PROJECT_NAME})
+set(CPACK_PACKAGE_NAME ${PROJECT_NAME})
 set(CPACK_PACKAGE_VENDOR "Eclipse Cyclone DDS project")
 set(CPACK_PACKAGE_CONTACT "https://github.com/eclipse-cyclonedds/cyclonedds")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Implementation of the OMG DDS standard")
@@ -83,11 +76,13 @@ set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_BINARY_DIR}/license.txt")
 #       Although that does not make sense from a technical point-of-view, it
 #       does help to clearify which settings are required for a platform.
 
-set(CPACK_COMPONENTS_ALL dev lib)
-set(CPACK_COMPONENT_LIB_DISPLAY_NAME "${CMAKE_PROJECT_NAME_FULL} library")
-set(CPACK_COMPONENT_LIB_DESCRIPTION  "Library used to run programs with ${CMAKE_PROJECT_NAME_FULL}")
-set(CPACK_COMPONENT_DEV_DISPLAY_NAME "${CMAKE_PROJECT_NAME_FULL} development")
-set(CPACK_COMPONENT_DEV_DESCRIPTION  "Development files for use with ${CMAKE_PROJECT_NAME_FULL}")
+set(CPACK_COMPONENTS_ALL dev lib idlc)
+set(CPACK_COMPONENT_LIB_DISPLAY_NAME "${PROJECT_NAME_FULL} library")
+set(CPACK_COMPONENT_LIB_DESCRIPTION  "Library used to run programs with ${PROJECT_NAME_FULL}")
+set(CPACK_COMPONENT_DEV_DISPLAY_NAME "${PROJECT_NAME_FULL} development")
+set(CPACK_COMPONENT_DEV_DESCRIPTION  "Development files for use with ${PROJECT_NAME_FULL}")
+set(CPACK_COMPONENT_IDLC_DISPLAY_NAME "${PROJECT_NAME_FULL} IDL Compiler")
+set(CPACK_COMPONENT_IDLC_DESCRIPTION  "Utility for turning IDL files into C++ source for ${PROJECT_NAME_FULL}")
 
 if(WIN32 AND NOT UNIX)
   if(CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -99,8 +94,8 @@ if(WIN32 AND NOT UNIX)
 
   set(CPACK_GENERATOR "WIX;ZIP;${CPACK_GENERATOR}" CACHE STRING "List of package generators")
 
-  set(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}-${CPACK_PACKAGE_VERSION}-${__arch}")
-  set(CPACK_PACKAGE_INSTALL_DIRECTORY "${CMAKE_PROJECT_NAME_FULL}")
+  set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${CPACK_PACKAGE_VERSION}-${__arch}")
+  set(CPACK_PACKAGE_INSTALL_DIRECTORY "${PROJECT_NAME_FULL}")
 
   include(InstallRequiredSystemLibraries)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
@@ -123,7 +118,7 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
     set(CPACK_RPM_COMPONENT_INSTALL ON)
     # FIXME: The package file name must be updated to include the distribution.
     #        See Fedora and Red Hat packaging guidelines for details.
-    set(CPACK_RPM_LIB_PACKAGE_NAME "${CMAKE_PROJECT_NAME_DASHED}")
+    set(CPACK_RPM_LIB_PACKAGE_NAME "${PROJECT_NAME_DASHED}")
     set(CPACK_RPM_LIB_FILE_NAME "${CPACK_RPM_LIB_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${__arch}.rpm")
     set(CPACK_RPM_DEV_PACKAGE_NAME "${CPACK_RPM_LIB_PACKAGE_NAME}-devel")
     set(CPACK_RPM_DEV_FILE_NAME "${CPACK_RPM_DEV_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${__arch}.rpm")
@@ -138,7 +133,7 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 
     set(CPACK_GENERATOR "DEB;TGZ;${CPACK_GENERATOR}" CACHE STRING "List of package generators")
 
-    string(TOLOWER "${CMAKE_PROJECT_NAME_DASHED}" CPACK_DEBIAN_LIB_PACKAGE_NAME)
+    string(TOLOWER "${PROJECT_NAME_DASHED}" CPACK_DEBIAN_LIB_PACKAGE_NAME)
     set(CPACK_DEBIAN_LIB_FILE_NAME "${CPACK_DEBIAN_LIB_PACKAGE_NAME}_${CPACK_PACKAGE_VERSION}_${__arch}.deb")
     set(CPACK_DEBIAN_DEV_PACKAGE_DEPENDS "${CPACK_DEBIAN_LIB_PACKAGE_NAME} (= ${CPACK_PACKAGE_VERSION}), libc6 (>= 2.23)")
     set(CPACK_DEBIAN_DEV_PACKAGE_NAME "${CPACK_DEBIAN_LIB_PACKAGE_NAME}-dev")

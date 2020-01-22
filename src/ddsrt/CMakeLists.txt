@@ -116,6 +116,7 @@ list(APPEND headers
   "${include_path}/dds/ddsrt/static_assert.h")
 
 list(APPEND sources
+  "${source_path}/bswap.c"
   "${source_path}/io.c"
   "${source_path}/log.c"
   "${source_path}/retcode.c"
@@ -182,6 +183,19 @@ foreach(feature atomics cdtors environ heap ifaddrs random rusage
       endif()
       set(system_exists FALSE)
 
+      # Headers that must remain private but are required by other runtime
+      # source files must be located in src/<feature>/dds/ddsrt.
+      if(IS_DIRECTORY "${source_path}/${feature}/include")
+        file(GLOB_RECURSE
+               files
+             CONFIGURE_DEPENDS
+               "${source_path}/${feature}/include/*.h")
+        list(APPEND headers ${files})
+        target_include_directories(
+          ddsrt INTERFACE
+            "$<BUILD_INTERFACE:${source_path}/${feature}/include/>")
+      endif()
+
       # Allow custom implementations for a feature. e.g. lwip as opposed to
       # windows or posix.
       set(_system_name "${system_name}")
@@ -190,18 +204,6 @@ foreach(feature atomics cdtors environ heap ifaddrs random rusage
       endif()
 
       foreach(system ${_system_name} posix)
-        # Headers that must remain private but are required by other runtime
-        # source files must be located in src/<feature>/dds/ddsrt.
-        if(IS_DIRECTORY "${source_path}/${feature}/include")
-          file(GLOB_RECURSE
-                 files
-               CONFIGURE_DEPENDS
-                 "${source_path}/${feature}/include/*.h")
-          list(APPEND headers ${files})
-          target_include_directories(
-            ddsrt INTERFACE
-              "$<BUILD_INTERFACE:${source_path}/${feature}/include/>")
-        endif()
         if(IS_DIRECTORY "${source_path}/${feature}/${system}")
           file(GLOB_RECURSE
                  files
@@ -260,20 +262,9 @@ if(BUILD_TESTING)
 endif()
 
 install(
-  DIRECTORY "include/dds"
+  DIRECTORY
+      "include/"
+      ${CMAKE_CURRENT_BINARY_DIR}/include/
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
   COMPONENT dev
   FILES_MATCHING PATTERN "*.h")
-
-install(
-  FILES "${CMAKE_CURRENT_BINARY_DIR}/include/dds/version.h"
-  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/dds"
-  COMPONENT dev)
-
-if(WIN32)
-  install(
-    FILES "${CMAKE_CURRENT_BINARY_DIR}/include/getopt.h"
-    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-    COMPONENT dev)
-endif()
-

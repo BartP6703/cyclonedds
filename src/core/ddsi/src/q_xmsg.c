@@ -38,7 +38,7 @@
 #include "dds/ddsi/q_config.h"
 #include "dds/ddsi/q_entity.h"
 #include "dds/ddsi/q_globals.h"
-#include "dds/ddsi/q_ephash.h"
+#include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/q_freelist.h"
 #include "dds/ddsi/ddsi_serdata_default.h"
 
@@ -694,7 +694,7 @@ int nn_xmsg_merge_rexmit_destinations_wrlock_held (struct q_globals *gv, struct 
                an addrset in rebuild_writer_addrset: then we don't
                need the lock anymore, and the '_wrlock_held' suffix
                can go and everyone's life will become easier! */
-            if ((wr = ephash_lookup_writer_guid (gv->guid_hash, &m->kindspecific.data.wrguid)) == NULL)
+            if ((wr = entidx_lookup_writer_guid (gv->entity_index, &m->kindspecific.data.wrguid)) == NULL)
             {
               GVTRACE ("writer-dead)");
               return 0;
@@ -786,7 +786,7 @@ void nn_xmsg_addpar_keyhash (struct nn_xmsg *m, const struct ddsi_serdata *serda
 static void nn_xmsg_addpar_BE4u (struct nn_xmsg *m, nn_parameterid_t pid, uint32_t x)
 {
   unsigned *p = nn_xmsg_addpar (m, pid, sizeof (x));
-  *p = toBE4u (x);
+  *p = ddsrt_toBE4u (x);
 }
 
 void nn_xmsg_addpar_statusinfo (struct nn_xmsg *m, unsigned statusinfo)
@@ -800,8 +800,8 @@ void nn_xmsg_addpar_statusinfo (struct nn_xmsg *m, unsigned statusinfo)
     assert ((statusinfo & ~NN_STATUSINFO_STANDARDIZED) == NN_STATUSINFO_OSPL_AUTO);
     if (statusinfo & NN_STATUSINFO_OSPL_AUTO)
       statusinfox |= NN_STATUSINFOX_OSPL_AUTO;
-    p[0] = toBE4u (statusinfo & NN_STATUSINFO_STANDARDIZED);
-    p[1] = toBE4u (statusinfox);
+    p[0] = ddsrt_toBE4u (statusinfo & NN_STATUSINFO_STANDARDIZED);
+    p[1] = ddsrt_toBE4u (statusinfox);
   }
 }
 
@@ -860,7 +860,7 @@ static void nn_xmsg_chain_release (struct q_globals *gv, struct nn_xmsg_chain *c
         struct writer *wr;
         assert (m->kindspecific.data.wrseq != 0);
         wrguid = m->kindspecific.data.wrguid;
-        if ((wr = ephash_lookup_writer_guid (gv->guid_hash, &m->kindspecific.data.wrguid)) != NULL)
+        if ((wr = entidx_lookup_writer_guid (gv->entity_index, &m->kindspecific.data.wrguid)) != NULL)
           writer_update_seq_xmit (wr, m->kindspecific.data.wrseq);
       }
     }
@@ -1188,7 +1188,7 @@ static uint32_t nn_xpack_sendq_thread (void *vgv)
     struct nn_xpack *xp;
     if ((xp = gv->sendq_head) == NULL)
     {
-      ddsrt_cond_waitfor (&gv->sendq_cond, &gv->sendq_lock, 1000000);
+      (void) ddsrt_cond_waitfor (&gv->sendq_cond, &gv->sendq_lock, 1000000);
     }
     else
     {
@@ -1217,7 +1217,8 @@ void nn_xpack_sendq_init (struct q_globals *gv)
 
 void nn_xpack_sendq_start (struct q_globals *gv)
 {
-  create_thread (&gv->sendq_ts, gv, "sendq", nn_xpack_sendq_thread, NULL);
+  if (create_thread (&gv->sendq_ts, gv, "sendq", nn_xpack_sendq_thread, NULL) != DDS_RETCODE_OK)
+    GVERROR ("nn_xpack_sendq_start: can't create nn_xpack_sendq_thread\n");
 }
 
 void nn_xpack_sendq_stop (struct q_globals *gv)
@@ -1374,7 +1375,7 @@ int nn_xpack_addmsg (struct nn_xpack *xp, struct nn_xmsg *m, const uint32_t flag
   assert (m->refd_payload == NULL || (m->refd_payload_iov.iov_len % 4) == 0);
 
   if (xp->iov == NULL)
-    xp->iov = malloc (NN_XMSG_MAX_MESSAGE_IOVECS * sizeof (*xp->iov));
+    xp->iov = ddsrt_malloc (NN_XMSG_MAX_MESSAGE_IOVECS * sizeof (*xp->iov));
 
   if (!nn_xpack_mayaddmsg (xp, m, flags))
   {

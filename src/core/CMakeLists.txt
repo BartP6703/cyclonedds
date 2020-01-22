@@ -31,6 +31,11 @@ endif()
 
 add_definitions(-DDDSI_INCLUDE_NETWORK_PARTITIONS -DDDSI_INCLUDE_SSM)
 
+option(ENABLE_LIFESPAN "Enable Lifespan QoS support" ON)
+if(ENABLE_LIFESPAN)
+  add_definitions(-DDDSI_INCLUDE_LIFESPAN)
+endif()
+
 # OpenSSL is huge, raising the RSS by 1MB or so, and moreover find_package(OpenSSL) causes
 # trouble on some older CMake versions that otherwise work fine, so provide an option to avoid
 # all OpenSSL related things.
@@ -74,11 +79,11 @@ set_target_properties(ddsc PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PRO
 # Create a pseudo-target that other targets (i.e. examples, tests) can depend
 # on and can also be provided as import-target by a package-file when building
 # those targets outside the regular Cyclone build-tree (i.e. the installed tree)
-add_library(${CMAKE_PROJECT_NAME}::ddsc ALIAS ddsc)
+add_library(${PROJECT_NAME}::ddsc ALIAS ddsc)
 
 install(
   TARGETS ddsc
-  EXPORT "${CMAKE_PROJECT_NAME}"
+  EXPORT "${PROJECT_NAME}"
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT lib
   LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT lib
   ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT lib
@@ -98,7 +103,8 @@ if(BUILD_DOCS)
     "__attribute__="
     "__declspec(x)="
     "DDS_EXPORT="
-    "DDS_DEPRECATED_EXPORT=")
+    "DDS_DEPRECATED_EXPORT="
+    "DDSRT_STATIC_ASSERT(x)=")
   find_package(Doxygen REQUIRED)
   doxygen_add_docs(ddsc_api_docs "ddsc/include")
 endif()
