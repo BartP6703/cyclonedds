@@ -60,3 +60,6 @@ install(
   DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/include/dds/security/core/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/dds/security/core/"
   COMPONENT dev)
+
+add_subdirectory(tests/plugin_loading)
+add_subdirectory(tests/authentication_handshake)
