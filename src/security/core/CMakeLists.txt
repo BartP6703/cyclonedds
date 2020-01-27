@@ -53,3 +53,4 @@ install(
   COMPONENT dev)
 
 add_subdirectory(tests/plugin_loading)
+add_subdirectory(tests/authentication_handshake)
