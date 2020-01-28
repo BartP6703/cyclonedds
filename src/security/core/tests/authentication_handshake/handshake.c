@@ -26,4 +26,9 @@
 
 CU_Test(bart_handshake, test1, .init = ddsrt_init, .fini = ddsrt_fini)
 {
+	// create participant 1
+	// test_authentication_plugin_init()
+	// create participant 2
+	// syncControlSend(&sync, CT_STARTED);
+	//
 }
