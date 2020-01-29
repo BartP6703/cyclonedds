@@ -14,10 +14,117 @@
 #include <assert.h>
 #include "mpt/mpt.h"
 #include "dds/dds.h"
+#include "dds/version.h"
 #include "dds/ddsrt/string.h"
 #include "dds/security/dds_security_api.h"
 #include "handshake.h"
 #include "../mock/handshake_export.h"
+
+#if 1
+
+#define URI_VARIABLE DDS_PROJECT_NAME_NOSPACE_CAPS"_URI"
+
+const char *config =
+      "<"DDS_PROJECT_NAME">"
+        "<Domain id=\"any\">"
+          "<Tracing><Verbosity>finest</></>"
+            "<DDSSecurity>"
+            "<Authentication>"
+                "<Library finalizeFunction=\"finalize_test_authentication\" initFunction=\"init_test_authentication\" path=\"/home/bart/eclipse_cyclone/fork/cyclonedds/build/src/mpt/tests/security/libdds_security_handshake.so\"/>"
+                "<IdentityCertificate>"
+                    "-----BEGIN CERTIFICATE-----"
+                    "MIIDYDCCAkigAwIBAgIBBDANBgkqhkiG9w0BAQsFADByMQswCQYDVQQGEwJOTDEL"
+                    "MAkGA1UECBMCT1YxEzARBgNVBAoTCkFETGluayBJU1QxGTAXBgNVBAMTEElkZW50"
+                    "aXR5IENBIFRlc3QxJjAkBgkqhkiG9w0BCQEWF2luZm9AaXN0LmFkbGlua3RlY2gu"
+                    "Y29tMB4XDTE4MDMxMjAwMDAwMFoXDTI3MDMxMTIzNTk1OVowdTELMAkGA1UEBhMC"
+                    "TkwxCzAJBgNVBAgTAk9WMRAwDgYDVQQKEwdBRExpbmsgMREwDwYDVQQLEwhJU1Qg"
+                    "VGVzdDETMBEGA1UEAxMKQWxpY2UgVGVzdDEfMB0GCSqGSIb3DQEJARYQYWxpY2VA"
+                    "YWRsaW5rLmlzdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBANBW+tEZ"
+                    "Baw7EQCEXyzH9n7IkZ8PQIKe8hG1LAOGYOF/oUYQZJO/HxbWoC4rFqOC20+A6is6"
+                    "kFwr1Zzp/Wurk9CrFXo5Nomi6ActH6LUM57nYqN68w6U38z/XkQxVY/ESZ5dySfD"
+                    "9Q1C8R+zdE8gwbimdYmwX7ioz336nghM2CoAHPDRthQeJupl8x4V7isOltr9CGx8"
+                    "+imJXbGr39OK6u87cNLeu23sUkOIC0lSRMIqIQK3oJtHS70J2qecXdqp9MhE7Xky"
+                    "/GPlI8ptQ1gJ8A3cAOvtI9mtMJMszs2EKWTLfeTcmfJHKKhKjvCgDdh3Jan4x5YP"
+                    "Yg7HG6H+ceOUkMMCAwEAATANBgkqhkiG9w0BAQsFAAOCAQEAkvuqZzyJ3Nu4/Eo5"
+                    "kD0nVgYGBUl7cspu+636q39zPSrxLEDMUWz+u8oXLpyGcgiZ8lZulPTV8dmOn+3C"
+                    "Vg55c5C+gbnbX3MDyb3wB17296RmxYf6YNul4sFOmj6+g2i+Dw9WH0PBCVKbA84F"
+                    "jR3Gx2Pfoifor3DvT0YFSsjNIRt090u4dQglbIb6cWEafC7O24t5jFhGPvJ7L9SE"
+                    "gB0Drh/HmKTVuaqaRkoOKkKaKuWoXsszK1ZFda1DHommnR5LpYPsDRQ2fVM4EuBF"
+                    "By03727uneuG8HLuNcLEV9H0i7LxtyfFkyCPUQvWG5jehb7xPOz/Ml26NAwwjlTJ"
+                    "xEEFrw=="
+                    "-----END CERTIFICATE-----"
+                "</IdentityCertificate>"
+                "<IdentityCA>"
+                    "-----BEGIN CERTIFICATE-----"
+                    "MIIEKTCCAxGgAwIBAgIBATANBgkqhkiG9w0BAQsFADByMQswCQYDVQQGEwJOTDEL"
+                    "MAkGA1UECBMCT1YxEzARBgNVBAoTCkFETGluayBJU1QxGTAXBgNVBAMTEElkZW50"
+                    "aXR5IENBIFRlc3QxJjAkBgkqhkiG9w0BCQEWF2luZm9AaXN0LmFkbGlua3RlY2gu"
+                    "Y29tMB4XDTE4MDMxMjAwMDAwMFoXDTI3MDMxMTIzNTk1OVowcjELMAkGA1UEBhMC"
+                    "TkwxCzAJBgNVBAgTAk9WMRMwEQYDVQQKEwpBRExpbmsgSVNUMRkwFwYDVQQDExBJ"
+                    "ZGVudGl0eSBDQSBUZXN0MSYwJAYJKoZIhvcNAQkBFhdpbmZvQGlzdC5hZGxpbmt0"
+                    "ZWNoLmNvbTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBANa/ENFfGVXg"
+                    "bPLTzBdDfiZQcp5dWZ//Pb8ErFOJu8uosVHFv8t69dgjHgNHB4OsjmjnR7GfKUZT"
+                    "0cMvWJnjsC7DDlBwFET9rj4k40n96bbVCH9I7+tNhsoqzc6Eu+5h4sk7VfNGTM2Z"
+                    "SyCd4GiSZRuA44rRbhXI7/LDpr4hY5J9ZDo5AM9ZyoLAoh774H3CZWD67S35XvUs"
+                    "72dzE6uKG/vxBbvZ7eW2GLO6ewa9UxlnLVMPfJdpkp/xYXwwcPW2+2YXCge1ujxs"
+                    "tjrOQJ5HUySh6DkE/kZpx8zwYWm9AaCrsvCIX1thsqgvKy+U5v1FS1L58eGc6s//"
+                    "9yMgNhU29R0CAwEAAaOByTCBxjAMBgNVHRMEBTADAQH/MB0GA1UdDgQWBBRNVUJN"
+                    "FzhJPReYT4QSx6dK53CXCTAfBgNVHSMEGDAWgBRNVUJNFzhJPReYT4QSx6dK53CX"
+                    "CTAPBgNVHQ8BAf8EBQMDB/+AMGUGA1UdJQEB/wRbMFkGCCsGAQUFBwMBBggrBgEF"
+                    "BQcDAgYIKwYBBQUHAwMGCCsGAQUFBwMEBggrBgEFBQcDCAYIKwYBBQUHAwkGCCsG"
+                    "AQUFBwMNBggrBgEFBQcDDgYHKwYBBQIDBTANBgkqhkiG9w0BAQsFAAOCAQEAcOLF"
+                    "ZYdJguj0uxeXB8v3xnUr1AWz9+gwg0URdfNLU2KvF2lsb/uznv6168b3/FcPgezN"
+                    "Ihl9GqB+RvGwgXS/1UelCGbQiIUdsNxk246P4uOGPIyW32RoJcYPWZcpY+cw11tQ"
+                    "NOnk994Y5/8ad1DmcxVLLqq5kwpXGWQufV1zOONq8B+mCvcVAmM4vkyF/de56Lwa"
+                    "sAMpk1p77uhaDnuq2lIR4q3QHX2wGctFid5Q375DRscFQteY01r/dtwBBrMn0wuL"
+                    "AMNx9ZGD+zAoOUaslpIlEQ+keAxk3jgGMWFMxF81YfhEnXzevSQXWpyek86XUyFL"
+                    "O9IAQi5pa15gXjSbUg=="
+                    "-----END CERTIFICATE-----"
+                "</IdentityCA>"
+                "<PrivateKey>"
+                    "-----BEGIN RSA PRIVATE KEY-----"
+                    "MIIEowIBAAKCAQEA0Fb60RkFrDsRAIRfLMf2fsiRnw9Agp7yEbUsA4Zg4X+hRhBk"
+                    "k78fFtagLisWo4LbT4DqKzqQXCvVnOn9a6uT0KsVejk2iaLoBy0fotQznudio3rz"
+                    "DpTfzP9eRDFVj8RJnl3JJ8P1DULxH7N0TyDBuKZ1ibBfuKjPffqeCEzYKgAc8NG2"
+                    "FB4m6mXzHhXuKw6W2v0IbHz6KYldsavf04rq7ztw0t67bexSQ4gLSVJEwiohAreg"
+                    "m0dLvQnap5xd2qn0yETteTL8Y+Ujym1DWAnwDdwA6+0j2a0wkyzOzYQpZMt95NyZ"
+                    "8kcoqEqO8KAN2HclqfjHlg9iDscbof5x45SQwwIDAQABAoIBAG0dYPeqd0IhHWJ7"
+                    "8azufbchLMN1pX/D51xG2uptssfnpHuhkkufSZUYi4QipRS2ME6PYhWJ8pmTi6lH"
+                    "E6cUkbI0KGd/F4U2gPdhNrR9Fxwea5bbifkVF7Gx/ZkRjZJiZ3w9+mCNTQbJDKhh"
+                    "wITAzzT6WYznhvqbzzBX1fTa6kv0GAQtX7aHKM+XIwkhX2gzU5TU80bvH8aMrT05"
+                    "tAMGQqkUeRnpo0yucBl4VmTZzd/+X/d2UyXR0my15jE5iH5o+p+E6qTRE9D+MGUd"
+                    "MQ6Ftj0Untqy1lcog1ZLL6zPlnwcD4jgY5VCYDgvabnrSwymOJapPLsAEdWdq+U5"
+                    "ec44BMECgYEA/+3qPUrd4XxA517qO3fCGBvf2Gkr7w5ZDeATOTHGuD8QZeK0nxPl"
+                    "CWhRjdgkqo0fyf1cjczL5XgYayo+YxkO1Z4RUU+8lJAHlVx9izOQo+MTQfkwH4BK"
+                    "LYlHxMoHJwAOXXoE+dmBaDh5xT0mDUGU750r763L6EFovE4qRBn9hxkCgYEA0GWz"
+                    "rpOPNxb419WxG9npoQYdCZ5IbmEOGDH3ReggVzWHmW8sqtkqTZm5srcyDpqAc1Gu"
+                    "paUveMblEBbU+NFJjLWOfwB5PCp8jsrqRgCQSxolShiVkc3Vu3oyzMus9PDge1eo"
+                    "9mwVGO7ojQKWRu/WVAakENPaAjeyyhv4dqSNnjsCgYEAlwe8yszqoY1k8+U0T0G+"
+                    "HeIdOCXgkmOiNCj+zyrLvaEhuS6PLq1b5TBVqGJcSPWdQ+MrglbQIKu9pUg5ptt7"
+                    "wJ5WU+i9PeK9Ruxc/g/BFKYFkFJQjtZzb+nqm3wpul8zGwDN/O/ZiTqCyd3rHbmM"
+                    "/dZ/viKPCZHIEBAEq0m3LskCgYBndzcAo+5k8ZjWwBfQth5SfhCIp/daJgGzbYtR"
+                    "P/BenAsY2KOap3tjT8Fsw5usuHSxzIojX6H0Gvu7Qzq11mLn43Q+BeQrRQTWeFRc"
+                    "MQdy4iZFZXNNEp7dF8yE9VKHwdgSJPGUdxD6chMvf2tRCN6mlS171VLV6wVvZvez"
+                    "H/vX5QKBgD2Dq/NHpjCpAsECP9awmNF5Akn5WJbRGmegwXIih2mOtgtYYDeuQyxY"
+                    "ZCrdJFfIUjUVPagshEmUklKhkYMYpzy2PQDVtaVcm6UNFroxT5h+J+KDs1LN1H8G"
+                    "LsASrzyAg8EpRulwXEfLrWKiu9DKv8bMEgO4Ovgz8zTKJZIFhcac"
+                    "-----END RSA PRIVATE KEY-----"
+                "</PrivateKey>"
+            "</Authentication>"
+            "<AccessControl>"
+                "<Library finalizeFunction=\"finalize_access_control\" initFunction=\"init_access_control\" path=\"dds_security_ac\"/>"
+                "<Governance>file:Governance.p7s</Governance>"
+                "<PermissionsCA>file:Permissions_CA.pem</PermissionsCA>"
+                "<Permissions>file:Permissions.p7s</Permissions>"
+            "</AccessControl>"
+            "<Cryptographic>"
+                "<Library finalizeFunction=\"finalize_crypto\" initFunction=\"init_crypto\" path=\"dds_security_crypto\"/>"
+            "</Cryptographic>"
+        "</DDSSecurity>"
+        "</Domain>"
+      "</"DDS_PROJECT_NAME">";
+
+#endif
 
 void handshake_init (void)
 {
@@ -364,8 +471,8 @@ MPT_ProcessEntry (handshake_process1,
                   MPT_Args (dds_domainid_t domainid))
 {
   dds_entity_t participant;
-  const char *recvCtrl = "pctrl_1b.log";
-  const char *sendCtrl = "pctrl_1a.log";
+  const char *recvCtrl = "pctrl_1a.log";
+  const char *sendCtrl = "pctrl_1b.log";
   //char logname[64];
   struct SyncControl sync;
   int r = 1;
@@ -377,10 +484,14 @@ MPT_ProcessEntry (handshake_process1,
   syncControlInit(&sync, recvCtrl, sendCtrl);
   test_authentication_plugin_init();
 
+  ddsrt_setenv(URI_VARIABLE, config);
+
   /* Create a Participant. */
   participant = dds_create_participant (domainid, NULL, NULL);
   if (participant < 0)
     DDS_FATAL("dds_create_participant: %s\n", dds_strretcode(-participant));
+
+  ddsrt_setenv(URI_VARIABLE, "");
 
   if (syncControlWaitFor(&sync, 10) == CT_STARTED) {
     syncControlSend(&sync, CT_CONTINUE);
@@ -430,10 +541,14 @@ MPT_ProcessEntry (handshake_process2,
   syncControlInit(&sync, recvCtrl, sendCtrl);
   test_authentication_plugin_init();
 
+  ddsrt_setenv(URI_VARIABLE, config);
+
   /* Create a Participant. */
   participant = dds_create_participant (domainid, NULL, NULL);
   if (participant < 0)
     DDS_FATAL("dds_create_participant: %s\n", dds_strretcode(-participant));
+
+  ddsrt_setenv(URI_VARIABLE, "");
 
   syncControlSend(&sync, CT_STARTED);
   if (syncControlWaitFor(&sync, 10) != CT_CONTINUE) {
