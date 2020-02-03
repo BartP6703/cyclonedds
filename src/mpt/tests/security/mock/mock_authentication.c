@@ -196,15 +196,15 @@ test_authentication_plugin_read(
     DDS_Security_IdentityHandle hsHandle,
     dds_duration_t timeout)
 {
-    printf("%s: started\n", __func__);
-    return readMessage(&testMessagaQueue, kind, lidHandle, ridHandle, hsHandle, timeout);
+    struct Message *ret;
+    ret = readMessage(&testMessagaQueue, kind, lidHandle, ridHandle, hsHandle, timeout);
+    return ret;
 }
 
 void
 test_authentication_plugin_delete_message(
     struct Message *msg)
 {
-    printf("%s:", __func__);
     if (msg) {
         printf(" kind:%d", (int)msg->kind);
     }
@@ -226,7 +226,6 @@ test_validate_local_identity(
     DDS_Security_ValidationResult_t result;
     struct Message *msg;
 
-    printf("%s: started\n", __func__);
     result = impl->instance->validate_local_identity(
                 impl->instance, local_identity_handle, adjusted_participant_guid, domain_id, participant_qos, candidate_participant_guid, ex);
 
@@ -244,11 +243,8 @@ test_get_identity_token(dds_security_authentication *instance,
 {
     struct dds_security_authentication_impl *impl = (struct dds_security_authentication_impl *)instance;
     DDS_Security_boolean ret;
-    printf("%s: started\n", __func__);
 
     ret = impl->instance->get_identity_token(impl->instance, identity_token, handle, ex);
-
-    printf("%s: returns %d\n", __func__, (int)ret);
 
     return ret;
 }
@@ -262,7 +258,6 @@ static DDS_Security_boolean test_get_identity_status_token(
 {
     struct dds_security_authentication_impl *impl = (struct dds_security_authentication_impl *)instance;
 
-    printf("%s: started\n", __func__);
     return impl->instance->get_identity_status_token(impl->instance, identity_status_token, handle, ex);
 }
 
@@ -275,7 +270,6 @@ static DDS_Security_boolean test_set_permissions_credential_and_token(
 {
     struct dds_security_authentication_impl *impl = (struct dds_security_authentication_impl *)instance;
 
-    printf("%s: started\n", __func__);
     return impl->instance->set_permissions_credential_and_token(impl->instance, handle, permissions_credential, permissions_token, ex);
 }
 
@@ -294,7 +288,6 @@ test_validate_remote_identity(
     DDS_Security_ValidationResult_t result;
     struct Message *msg;
 
-    printf("%s: started\n", __func__);
     result = impl->instance->validate_remote_identity(
               impl->instance, remote_identity_handle, local_auth_request_token, remote_auth_request_token,
               local_identity_handle, remote_identity_token, remote_participant_guid, ex);
@@ -319,7 +312,6 @@ test_begin_handshake_request(
     DDS_Security_ValidationResult_t result;
     struct Message *msg;
 
-    printf("%s: started\n", __func__);
     result = impl->instance->begin_handshake_request(
               impl->instance, handshake_handle, handshake_message, initiator_identity_handle,
               replier_identity_handle, serialized_local_participant_data, ex);
@@ -346,7 +338,6 @@ test_begin_handshake_reply(
     DDS_Security_ValidationResult_t result;
     struct Message *msg;
 
-    printf("%s: started\n", __func__);
     result = impl->instance->begin_handshake_reply(
               impl->instance, handshake_handle, handshake_message_out, handshake_message_in,
               initiator_identity_handle, replier_identity_handle, serialized_local_participant_data, ex);
@@ -368,7 +359,6 @@ static DDS_Security_ValidationResult_t test_process_handshake(
     DDS_Security_ValidationResult_t result;
     struct Message *msg;
 
-    printf("%s: started\n", __func__);
     result = impl->instance->process_handshake(impl->instance, handshake_message_out, handshake_message_in, handshake_handle, ex);
 
     msg = createMessage(MESSAGE_KIND_PROCESS_HANDSHAKE, 0, 0, handshake_handle, NULL, NULL, result, handshake_message_out);
@@ -384,7 +374,6 @@ static DDS_Security_SharedSecretHandle test_get_shared_secret(
 {
     struct dds_security_authentication_impl *impl = (struct dds_security_authentication_impl *)instance;
 
-    printf("%s: started\n", __func__);
     return impl->instance->get_shared_secret(impl->instance, handshake_handle, ex);
 }
 
@@ -396,7 +385,6 @@ static DDS_Security_boolean test_get_authenticated_peer_credential_token(
 {
     struct dds_security_authentication_impl *impl = (struct dds_security_authentication_impl *)instance;
 
-    printf("%s: started\n", __func__);
     return impl->instance->get_authenticated_peer_credential_token(impl->instance, peer_credential_token, handshake_handle, ex);
 }
 
@@ -406,7 +394,6 @@ static DDS_Security_boolean test_set_listener(dds_security_authentication *insta
 {
     struct dds_security_authentication_impl *impl = (struct dds_security_authentication_impl *)instance;
 
-    printf("%s: started\n", __func__);
     return impl->instance->set_listener(impl->instance, listener, ex);
 }
 
@@ -416,7 +403,6 @@ static DDS_Security_boolean test_return_identity_token(dds_security_authenticati
 {
     struct dds_security_authentication_impl *impl = (struct dds_security_authentication_impl *)instance;
 
-    printf("%s: started\n", __func__);
     return impl->instance->return_identity_token(impl->instance, token, ex);
 }
 
@@ -427,7 +413,6 @@ static DDS_Security_boolean test_return_identity_status_token(
 {
     struct dds_security_authentication_impl *impl = (struct dds_security_authentication_impl *)instance;
 
-    printf("%s: started\n", __func__);
     return impl->instance->return_identity_status_token(impl->instance, token, ex);
 }
 
@@ -438,7 +423,6 @@ static DDS_Security_boolean test_return_authenticated_peer_credential_token(
 {
     struct dds_security_authentication_impl *impl = (struct dds_security_authentication_impl *)instance;
 
-    printf("%s: started\n", __func__);
     return impl->instance->return_authenticated_peer_credential_token(impl->instance, peer_credential_token, ex);
 }
 
@@ -449,7 +433,6 @@ test_return_handshake_handle(dds_security_authentication *instance,
 {
     struct dds_security_authentication_impl *impl = (struct dds_security_authentication_impl *)instance;
 
-    printf("%s: started\n", __func__);
     return impl->instance->return_handshake_handle(impl->instance, handshake_handle, ex);
 }
 
@@ -461,7 +444,6 @@ test_return_identity_handle(
 {
     struct dds_security_authentication_impl *impl = (struct dds_security_authentication_impl *)instance;
 
-    printf("%s: started\n", __func__);
     return impl->instance->return_identity_handle(impl->instance, identity_handle, ex);
 }
 
@@ -472,7 +454,6 @@ static DDS_Security_boolean test_return_sharedsecret_handle(
 {
     struct dds_security_authentication_impl *impl = (struct dds_security_authentication_impl *)instance;
 
-    printf("%s: started\n", __func__);
     return impl->instance->return_sharedsecret_handle(impl->instance, sharedsecret_handle, ex);
 }
 
@@ -480,7 +461,6 @@ int32_t init_test_authentication( const char *argument, void **context)
 {
     struct dds_security_authentication_impl *authentication;
 
-    printf("%s: started\n", __func__);
     authentication = ddsrt_malloc(sizeof(*authentication));
 
     //allocate implementation wrapper
@@ -510,13 +490,11 @@ int32_t finalize_test_authentication(void *instance)
 {
     struct dds_security_authentication_impl *authentication = instance;
 
-    printf("%s: started\n", __func__);
     return finalize_authentication(authentication->instance);
 }
 
 int test_authentication_plugin_init(void)
 {
-    printf("%s: started\n", __func__);
     initMessageQueue(&testMessagaQueue);
 
     return 1;
@@ -524,7 +502,6 @@ int test_authentication_plugin_init(void)
 
 int test_authentication_plugin_deinit(void)
 {
-    printf("%s: started\n", __func__);
     deinitMessageQueue(&testMessagaQueue);
 
     return 1;

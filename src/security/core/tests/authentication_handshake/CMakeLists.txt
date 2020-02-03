@@ -13,7 +13,7 @@ include(GenerateExportHeader)
 include(CUnit)
 
 set(authentication_handshake_test_sources
-  "handshake.c")
+  "handshake.c" "queue.c")
 
 add_cunit_executable(cunit_authentication_handshake ${authentication_handshake_test_sources})
 target_include_directories(
@@ -25,7 +25,8 @@ target_include_directories(
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>"
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/../../../../core/ddsi/include>")
 
-target_link_libraries(cunit_authentication_handshake PRIVATE ddsc security_api)
+target_link_libraries(cunit_authentication_handshake PRIVATE security_api)
+target_link_libraries(cunit_authentication_handshake PRIVATE ddsc)
 target_include_directories(cunit_authentication_handshake PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
 set(CUnit_plugin_mock_dir ".")
@@ -59,7 +60,9 @@ function(add_mock libname casename)
 
   #find_package(OpenSSL )
   #target_link_libraries("dds_security_${casename}" PUBLIC OpenSSL::SSL)
-  target_link_libraries("dds_security_${casename}" PUBLIC ddsc)
+  #target_link_libraries("dds_security_${casename}" PUBLIC ddsc)
+  target_link_libraries(cunit_authentication_handshake PRIVATE dds_security_${casename})
+  target_link_libraries(cunit_authentication_handshake PRIVATE dds_security_auth)
   
   target_sources("dds_security_${casename}"
     PRIVATE

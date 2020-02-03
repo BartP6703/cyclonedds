@@ -8,7 +8,10 @@
 #ifndef SECURITY_BUILTIN_PLUGINS_AUTHENTICATION_H_
 #define SECURITY_BUILTIN_PLUGINS_AUTHENTICATION_H_
 
-#include "dds/security/authentication_handshake_export.h"
+#include "dds/security/dds_security_api.h"
+
+//#include "dds/security/authentication_handshake_export.h"
+#define SECURITY_EXPORT
 
 SECURITY_EXPORT int32_t
 init_authentication(const char *argument, void **context);

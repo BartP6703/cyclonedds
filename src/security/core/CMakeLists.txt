@@ -54,6 +54,7 @@ target_include_directories(security_core
 if(BUILD_TESTING)
   add_subdirectory(tests)
   add_subdirectory(tests/plugin_loading)
+  add_subdirectory(tests/authentication_handshake)
 endif()
 
 install(
@@ -61,5 +62,3 @@ install(
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/dds/security/core/"
   COMPONENT dev)
 
-add_subdirectory(tests/plugin_loading)
-add_subdirectory(tests/authentication_handshake)

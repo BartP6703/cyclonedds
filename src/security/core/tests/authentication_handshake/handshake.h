@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2019 ADLINK Technology Limited and others
+ * Copyright(c) 2020 ADLINK Technology Limited and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,9 +17,9 @@
 #include <string.h>
 
 #include "dds/dds.h"
-#include "mpt/mpt.h"
+#include "dds/security/dds_security_api_types.h"
 
-#include "../mock/mock_authentication.h"
+#include "plugin_mock/authentication_handshake/mock_authentication.h"
 
 #if defined (__cplusplus)
 extern "C" {
@@ -52,42 +52,17 @@ struct Handshake {
 
 struct SyncControl {
     char *recvName;
+    char *fileName;
     FILE *sendCtrl;
     long pos;
 };
 
 
-void
-syncControlInit (
-    const char *id,
-    struct SyncControl *sync,
-    const char *recvName,
-    const char *sendName);
-
-void
-syncControlDeinit(
-    const char *id,
-    struct SyncControl *sync);
-
-int
-syncControlRead(
-    const char *id,
-   struct SyncControl *sync,
-   char *token,
-   int size,
-   int timeout);
-
-int
-syncControlWaitFor(
-    const char *id,
-    struct SyncControl *sync,
-    int timeout);
-
-void
-syncControlSend(
-    const char *id,
-    struct SyncControl *sync,
-    int idx);
+void syncControlInit ( const char *id, struct SyncControl *sync, const char *fileName);
+void syncControlDeinit( const char *id, struct SyncControl *sync); 
+int syncControlRead( const char *id, struct SyncControl *sync, char *token, int size, int timeout);
+int syncControlWaitFor( const char *id, struct SyncControl *sync, int timeout);
+void syncControlSend( const char *id, struct SyncControl *sync, int idx);
 
 void
 addLocalIdentity(
@@ -140,19 +115,14 @@ handleValidateRemoteIdentity(
 
 int
 validate_handshake(
-    const char *id);
+    void);
 
 void handshake_init (void);
 void handshake_fini (void);
-
-MPT_ProcessEntry (handshake_process1,
-                  MPT_Args (dds_domainid_t domainid));
-
-MPT_ProcessEntry (handshake_process2,
-                  MPT_Args (dds_domainid_t domainid));
 
 #if defined (__cplusplus)
 }
 #endif
 
 #endif
+
