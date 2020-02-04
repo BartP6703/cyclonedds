@@ -21,37 +21,40 @@
         queue->wp = (queue->wp + 1) % queue->max;     \
     } while (0)
 
-int enqueue(queue_t *queue, uint8_t data)
+int enqueue(queue_t *queue, uint8_t data, char *name)
 {
     int r = -1;
     assert(queue && queue->buffer);
     if (!queue_full(queue)) {
         queue->buffer[queue->rp] = data;
+        queue->names[queue->rp] = name;
         ADVANCE(queue);
         r = 0;
     }
     return r;
 }
 
-int dequeue(queue_t *queue, uint8_t *data)
+int dequeue(queue_t *queue, uint8_t *data, char **name)
 {
     assert(queue && data && queue->buffer);
     int r = -1;
     if (!queue_empty(queue)) {
         *data = queue->buffer[queue->wp];
+        *name = queue->names[queue->wp];
         RETREAT(queue);
         r = 0;
     }
     return r;
 }
 
-queue_t *queue_init(char *name, uint8_t *buffer, size_t size)
+queue_t *queue_init(char *name, uint8_t *buffer, char **names, size_t size)
 {
     assert(buffer && size);
     queue_t *queue = ddsrt_malloc(sizeof(queue_t));
     assert(queue);
     queue->name = name;
     queue->buffer = buffer;
+    queue->names = names;
     queue->max = size;
     queue_reset(queue);
     assert(queue_empty(queue));

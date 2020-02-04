@@ -465,7 +465,8 @@ typedef enum {
     STATE_WAIT_M1_RSP,
     STATE_WAIT_M2_REQ,
     STATE_WAIT_M2_RSP,
-    STATE_DEINIT
+    STATE_DEINIT,
+    STATE_TERMINATE
 } state_t;
 
 typedef struct _sm_t {
@@ -495,58 +496,82 @@ const char *msg[] = {
     NULL
 };
 
+#define SIZE 10
+static uint8_t queueP1_buffer[SIZE];
+static uint8_t queueP2_buffer[SIZE];
+static uint8_t queueP3_buffer[SIZE];
+static char *queueP1_src_buffer[SIZE];
+static char *queueP2_src_buffer[SIZE];
+static char *queueP3_src_buffer[SIZE];
+
 static sm_t *sm_list = NULL;
+
+static void timeout(sm_t *sm)
+{
+    //printf("%s() @%d: count not dequeue from queueP1 (timeout:%d)\n", __func__, __LINE__, sm->timeout);
+    sm->timeout++;
+    if (sm->timeout > 10) {
+        sm->timeout = 0;
+        sm->state = STATE_DEINIT;
+    }
+}
 
 static void process_p1(sm_t *sm)
 {
     uint8_t value;
+    char *src;
     assert(sm);
     switch (sm->state) {
     case STATE_INIT:
         sm->started = true;
-        //printf("%s(): init\n", __func__);
-        enqueue(sm->queueP2, (uint8_t)MSG_M1_req);
+        printf("%s(): init\n", __func__);
+        enqueue(sm->queueP2, (uint8_t)MSG_M1_req, "process_p1()");
         printf("%s() @%d: send MSG_M1_req to process_p2()\n", __func__, __LINE__);
         sm->state = STATE_WAIT_M1_RSP;
         break;
     case STATE_WAIT_M1_RSP:
-        if (dequeue(sm->queueP1, &value) == 0) {
+        if (dequeue(sm->queueP1, &value, &src) == 0) {
             if (value == (uint8_t)MSG_M1_rsp) {
-                printf("%s() @%d: received MSG_M1_rsp\n", __func__, __LINE__);
-                enqueue(sm->queueP2, (uint8_t)MSG_M2_req);
-        	printf("%s() @%d: send MSG_M2_req to process_p2()\n", __func__, __LINE__);
+                printf("%s() @%d: recv MSG_M1_rsp from %s\n", __func__, __LINE__, src);
+                enqueue(sm->queueP2, (uint8_t)MSG_M2_req, "process_p1()");
+                printf("%s() @%d: send MSG_M2_req to process_p2()\n", __func__, __LINE__);
                 sm->state = STATE_WAIT_M2_RSP;
             } else {
                 printf("%s() @%d: wrong message (%d,%s)\n", __func__, __LINE__, (int)value, msg[value]);
             }
         } else {
-            //printf("%s(): count not dequeue from queueP1 (timeout:%d)\n", __func__, sm->timeout);
+        	timeout(sm);
+            //printf("%s() @%d: count not dequeue from queueP1 (timeout:%d)\n", __func__, __LINE__, sm->timeout);
             sm->timeout++;
             if (sm->timeout > 10) {
-            	sm->timeout = 0;
-            	sm->state = STATE_DEINIT;
+                sm->timeout = 0;
+                sm->state = STATE_DEINIT;
             }
         }
         break;
     case STATE_WAIT_M2_RSP:
-        if (dequeue(sm->queueP1, &value) == 0) {
+        if (dequeue(sm->queueP1, &value, &src) == 0) {
             if (value == (uint8_t)MSG_M2_rsp) {
-                printf("%s() @%d: received MSG_M2_rsp\n", __func__, __LINE__);
+                printf("%s() @%d: recv MSG_M2_rsp from %s\n", __func__, __LINE__, src);
                 sm->state = STATE_DEINIT;
             } else {
                 printf("%s() @%d: wrong message (%d,%s)\n", __func__, __LINE__, (int)value, msg[value]);
             }
         } else {
-            //printf("%s(): count not dequeue from queueP1 (timeout:%d)\n", __func__, sm->timeout);
+        	timeout(sm);
+            //printf("%s() @%d: count not dequeue from queueP1 (timeout:%d)\n", __func__, __LINE__, sm->timeout);
             sm->timeout++;
             if (sm->timeout > 10) {
-            	sm->timeout = 0;
-            	sm->state = STATE_DEINIT;
+                sm->timeout = 0;
+                sm->state = STATE_DEINIT;
             }
         }
         break;
     case STATE_DEINIT:
         printf("%s(): deinit()\n", __func__);
+        sm->state = STATE_TERMINATE;
+        break;
+    case STATE_TERMINATE:
         sm->terminated = true;
         break;
     default:
@@ -557,87 +582,75 @@ static void process_p1(sm_t *sm)
 static void process_p2(sm_t *sm)
 {
     uint8_t value;
+    char *src;
     assert(sm);
     switch (sm->state) {
     case STATE_INIT:
         sm->started = true;
-        //printf("%s(): init\n", __func__);
+        printf("%s(): init\n", __func__);
         sm->state = STATE_WAIT_M1_REQ;
         break;
     case STATE_WAIT_M1_REQ:
-        if (dequeue(sm->queueP2, &value) == 0) {
+        if (dequeue(sm->queueP2, &value, &src) == 0) {
             if (value == (uint8_t)MSG_M1_req) {
-                printf("%s() @%d: received MSG_M1_req\n", __func__, __LINE__);
-                enqueue(sm->queueP3, (uint8_t)MSG_M1_req);
-        	printf("%s() @%d: send MSG_M1_req to process_p3()\n", __func__, __LINE__);
+                printf("%s() @%d: recv MSG_M1_req from %s\n", __func__, __LINE__, src);
+                enqueue(sm->queueP3, (uint8_t)MSG_M1_req, "process_p2()");
+                printf("%s() @%d: send MSG_M1_req to process_p3()\n", __func__, __LINE__);
                 sm->state = STATE_WAIT_M1_RSP;
             } else {
                 printf("%s() @%d: wrong message (%d,%s)\n", __func__, __LINE__, (int)value, msg[value]);
             }
         } else {
-            //printf("%s(): count not dequeue from queueP2 (timeout:%d)\n", __func__, sm->timeout);
-            sm->timeout++;
-            if (sm->timeout > 10) {
-            	sm->timeout = 0;
-            	sm->state = STATE_DEINIT;
-            }
+        	timeout(sm);
         }
         break;
     case STATE_WAIT_M1_RSP:
-        if (dequeue(sm->queueP2, &value) == 0) {
-            if (value == (uint8_t)MSG_M2_rsp) {
-                printf("%s() @%d: received MSG_M1_rsp\n", __func__, __LINE__);
+        if (dequeue(sm->queueP2, &value, &src) == 0) {
+            if (value == (uint8_t)MSG_M1_rsp) {
+                printf("%s() @%d: recv MSG_M1_rsp from %s\n", __func__, __LINE__, src);
+                enqueue(sm->queueP1, (uint8_t)MSG_M1_rsp, "process_p2()");
+                printf("%s() @%d: send MSG_M1_rsp to process_p1()\n", __func__, __LINE__);
                 sm->state = STATE_WAIT_M2_REQ;
             } else {
                 printf("%s() @%d: wrong message (%d,%s)\n", __func__, __LINE__, (int)value, msg[value]);
             }
         } else {
-            //printf("%s(): count not dequeue from queueP2 (timeout:%d)\n", __func__, sm->timeout);
-            sm->timeout++;
-            if (sm->timeout > 10) {
-            	sm->timeout = 0;
-            	sm->state = STATE_DEINIT;
-            }
+        	timeout(sm);
         }
         break;
     case STATE_WAIT_M2_REQ:
-        if (dequeue(sm->queueP2, &value) == 0) {
+        if (dequeue(sm->queueP2, &value, &src) == 0) {
             if (value == (uint8_t)MSG_M2_req) {
-                printf("%s() @%d: received MSG_M2_req\n", __func__, __LINE__);
-                enqueue(sm->queueP3, (uint8_t)MSG_M2_req);
-        	printf("%s() @%d: send MSG_M2_req to process_p3()\n", __func__, __LINE__);
+                printf("%s() @%d: recv MSG_M2_req from %s\n", __func__, __LINE__, src);
+                enqueue(sm->queueP3, (uint8_t)MSG_M2_req, "process_p2()");
+                printf("%s() @%d: send MSG_M2_req to process_p3()\n", __func__, __LINE__);
                 sm->state = STATE_WAIT_M2_RSP;
             } else {
                 printf("%s() @%d: wrong message (%d,%s)\n", __func__, __LINE__, (int)value, msg[value]);
             }
         } else {
-            //printf("%s(): count not dequeue from queueP2 (timeout:%d)\n", __func__, sm->timeout);
-            sm->timeout++;
-            if (sm->timeout > 10) {
-            	sm->timeout = 0;
-            	sm->state = STATE_DEINIT;
-            }
+        	timeout(sm);
         }
         break;
     case STATE_WAIT_M2_RSP:
-        if (dequeue(sm->queueP2, &value) == 0) {
+        if (dequeue(sm->queueP2, &value, &src) == 0) {
             if (value == (uint8_t)MSG_M2_rsp) {
-                printf("%s() @%d: received MSG_M2_rsp\n", __func__, __LINE__);
+                printf("%s() @%d: recv MSG_M2_rsp from %s\n", __func__, __LINE__, src);
+                enqueue(sm->queueP1, (uint8_t)MSG_M2_rsp, "process_p2()");
+                printf("%s() @%d: send MSG_M2_rsp to process_p1()\n", __func__, __LINE__);
                 sm->state = STATE_DEINIT;
             } else {
                 printf("%s() @%d: wrong message (%d,%s)\n", __func__, __LINE__, (int)value, msg[value]);
             }
         } else {
-            //printf("%s(): count not dequeue from queueP2 (timeout:%d)\n", __func__, sm->timeout);
-            sm->timeout++;
-            if (sm->timeout > 10) {
-            	sm->timeout = 0;
-            	sm->state = STATE_DEINIT;
-            }
+        	timeout(sm);
         }
         break;
     case STATE_DEINIT:
         printf("%s(): deinit()\n", __func__);
+        sm->state = STATE_TERMINATE;
+        break;
+    case STATE_TERMINATE:
         sm->terminated = true;
         break;
     default:
@@ -648,62 +661,63 @@ static void process_p2(sm_t *sm)
 static void process_p3(sm_t *sm)
 {
     uint8_t value;
+    char *src;
     assert(sm);
     switch (sm->state) {
     case STATE_INIT:
         sm->started = true;
-        //printf("%s(): init\n", __func__);
+        printf("%s(): init\n", __func__);
         sm->state = STATE_WAIT_M1_REQ;
         break;
     case STATE_WAIT_M1_REQ:
-        if (dequeue(sm->queueP3, &value) == 0) {
+        if (dequeue(sm->queueP3, &value, &src) == 0) {
             if (value == (uint8_t)MSG_M1_req) {
-                printf("%s() @%d: received MSG_M1_msg\n", __func__, __LINE__);
-                enqueue(sm->queueP2, (uint8_t)MSG_M2_rsp);
-        	printf("%s() @%d: send MSG_M2_rsp to process_p2()\n", __func__, __LINE__);
+                printf("%s() @%d: recv MSG_M1_msg from %s\n", __func__, __LINE__, src);
+                enqueue(sm->queueP2, (uint8_t)MSG_M1_rsp, "process_p3()");
+                printf("%s() @%d: send MSG_M1_rsp to process_p2()\n", __func__, __LINE__);
                 sm->state = STATE_WAIT_M2_REQ;
             } else {
                 printf("%s() @%d: wrong message (%d,%s)\n", __func__, __LINE__, (int)value, msg[value]);
             }
         } else {
-            //printf("%s(): count not dequeue from queueP3 (timeout:%d)\n", __func__, sm->timeout);
+            printf("%s() @%d: count not dequeue from queueP3 (timeout:%d)\n", __func__, __LINE__, sm->timeout);
             sm->timeout++;
             if (sm->timeout > 10) {
-            	sm->timeout = 0;
-            	sm->state = STATE_DEINIT;
+                    sm->timeout = 0;
+                    sm->state = STATE_DEINIT;
             }
         }
         break;
     case STATE_WAIT_M2_REQ:
-        if (dequeue(sm->queueP3, &value) == 0) {
-            if (value == (uint8_t)MSG_M1_req) {
-                printf("%s() @%d: received MSG_M1_req\n", __func__, __LINE__);
+        if (dequeue(sm->queueP3, &value, &src) == 0) {
+            if (value == (uint8_t)MSG_M2_req) {
+                printf("%s() @%d: recv MSG_M2_req from %s\n", __func__, __LINE__, src);
+                enqueue(sm->queueP2, (uint8_t)MSG_M2_rsp, "process_p3()");
+                printf("%s() @%d: send MSG_M2_rsp to process_p2()\n", __func__, __LINE__);
                 sm->state = STATE_DEINIT;
             } else {
                 printf("%s() @%d: wrong message (%d,%s)\n", __func__, __LINE__, (int)value, msg[value]);
             }
         } else {
-            //printf("%s(): count not dequeue from queueP3 (timeout:%d)\n", __func__, sm->timeout);
+            //printf("%s() @%d: count not dequeue from queueP3 (timeout:%d)\n", __func__, __LINE__, sm->timeout);
             sm->timeout++;
             if (sm->timeout > 10) {
-            	sm->timeout = 0;
-            	sm->state = STATE_DEINIT;
+                    sm->timeout = 0;
+                    sm->state = STATE_DEINIT;
             }
         }
         break;
     case STATE_DEINIT:
         printf("%s(): deinit()\n", __func__);
+        sm->state = STATE_TERMINATE;
+        break;
+    case STATE_TERMINATE:
         sm->terminated = true;
         break;
     default:
         break;
     }
 }
-
-#define SIZE 100
-static uint8_t queueP1_buffer[SIZE];
-static uint8_t queueP2_buffer[SIZE];
-static uint8_t queueP3_buffer[SIZE];
 
 static void sm_init(const char *name, sm_t *sm, queue_t *queueP1, queue_t *queueP2, queue_t *queueP3)
 {
@@ -719,32 +733,32 @@ static void sm_init(const char *name, sm_t *sm, queue_t *queueP1, queue_t *queue
     sm->next = NULL;
 
     if (sm_list == NULL) {
-    	sm_list = sm;
+            sm_list = sm;
     } else {
-    	sm_t *sm_next = sm_list;
-    	sm_list = sm;
-    	sm->next = sm_next;
+            sm_t *sm_next = sm_list;
+            sm_list = sm;
+            sm->next = sm_next;
     }
 }
 
 static int must_terminate(void)
 {
-	int started = 0;
-	int terminated = 0;
-	sm_t *sm;
-	for (sm = sm_list; sm != NULL; sm = sm->next) {
-		if (sm->started) started++;
-		if (sm->terminated) terminated++;
-	}
-	return started == terminated ? 1 : 0;
+        int started = 0;
+        int terminated = 0;
+        sm_t *sm;
+        for (sm = sm_list; sm != NULL; sm = sm->next) {
+                if (sm->started) started++;
+                if (sm->terminated) terminated++;
+        }
+        return started == terminated ? 1 : 0;
 }
 
 CU_Test(bart_handshake, test1, .init = handshake_init, .fini = handshake_fini)
 {
-    int i = 0;
-    queue_t *queueP1 = queue_init("queueP1", queueP1_buffer, SIZE);
-    queue_t *queueP2 = queue_init("queueP2", queueP2_buffer, SIZE);
-    queue_t *queueP3 = queue_init("queueP3", queueP3_buffer, SIZE);
+    int i;
+    queue_t *queueP1 = queue_init("queueP1", queueP1_buffer, queueP1_src_buffer, SIZE);
+    queue_t *queueP2 = queue_init("queueP2", queueP2_buffer, queueP2_src_buffer, SIZE);
+    queue_t *queueP3 = queue_init("queueP3", queueP3_buffer, queueP3_src_buffer, SIZE);
     sm_t smP1, smP2, smP3;
 
     sm_init("smP1", &smP1, queueP1, queueP2, queueP3);
@@ -757,7 +771,7 @@ CU_Test(bart_handshake, test1, .init = handshake_init, .fini = handshake_fini)
         process_p3(&smP3);
         dds_sleepfor(DDS_MSECS(10));
         if (must_terminate()) {
-        	break;
+                break;
         }
     }
 
@@ -765,5 +779,5 @@ CU_Test(bart_handshake, test1, .init = handshake_init, .fini = handshake_fini)
     queue_free(queueP2);
     queue_free(queueP3);
 
-    CU_ASSERT(0);
+    CU_ASSERT(1);
 }
