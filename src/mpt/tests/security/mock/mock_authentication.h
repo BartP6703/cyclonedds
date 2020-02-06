@@ -51,11 +51,13 @@ struct MessageQueue {
     struct Message *tail;
 };
 
-int test_authentication_plugin_init(void);
-int test_authentication_plugin_deinit(void);
+int test_authentication_plugin_init(int pid);
+int test_authentication_plugin_deinit(int pid);
 
 struct Message *
 test_authentication_plugin_read(
+    int pid,
+    const char *msg,
     MessageKind_t kind,
     DDS_Security_IdentityHandle lidHandle,
     DDS_Security_IdentityHandle ridHandle,

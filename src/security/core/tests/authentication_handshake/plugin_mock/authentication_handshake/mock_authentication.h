@@ -42,6 +42,7 @@ struct Message {
     DDS_Security_GUID_t rguid;
     DDS_Security_ValidationResult_t result;
     DDS_Security_DataHolder token;
+    void *instance;
     struct Message *next;
 };
 

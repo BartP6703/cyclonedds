@@ -3387,7 +3387,6 @@ DDS_Security_boolean return_sharedsecret_handle(
 int32_t
 init_authentication( const char *argument, void **context)
 {
-
     dds_security_authentication_impl *authentication;
 
     DDSRT_UNUSED_ARG(argument);

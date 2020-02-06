@@ -13,7 +13,7 @@ include(GenerateExportHeader)
 include(CUnit)
 
 set(authentication_handshake_test_sources
-  "handshake.c" "queue.c")
+  "handshake.c")
 
 add_cunit_executable(cunit_authentication_handshake ${authentication_handshake_test_sources})
 target_include_directories(

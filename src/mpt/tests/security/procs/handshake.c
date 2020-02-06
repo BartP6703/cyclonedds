@@ -156,12 +156,10 @@ const int CT_CONTINUE = 4;
 
 void
 syncControlInit (
-    const char *id,
     struct SyncControl *sync,
     const char *recvName,
     const char *sendName)
 {
-    printf("%s: %s()\n", id, __func__);
     sync->recvName = ddsrt_strdup(recvName);
     sync->sendCtrl = fopen(sendName, "w");
     sync->pos = 0;
@@ -169,17 +167,14 @@ syncControlInit (
 
 void
 syncControlDeinit(
-    const char *id,
     struct SyncControl *sync)
 {
-    printf("%s: %s()\n", id, __func__);
     dds_free(sync->recvName);
     fclose(sync->sendCtrl);
 }
 
 int
 syncControlRead(
-   const char *id,
    struct SyncControl *sync,
    char *token,
    int size,
@@ -189,7 +184,6 @@ syncControlRead(
     FILE *f;
     dds_duration_t delay = DDS_SECS(1);
 
-    printf("%s: %s()\n", id, __func__);
     while (!found && timeout > 0) {
         f = fopen(sync->recvName, "r");
         if (f) {
@@ -220,7 +214,6 @@ syncControlRead(
 
 int
 syncControlWaitFor(
-    const char *id,
     struct SyncControl *sync,
     int timeout)
 {
@@ -228,8 +221,7 @@ syncControlWaitFor(
     char token[256];
     int i;
 
-    printf("%s: %s()\n", id, __func__);
-    if (syncControlRead(id, sync, token, sizeof(token), timeout)) {
+    if (syncControlRead(sync, token, sizeof(token), timeout)) {
         for (i = 0; (i < numControls) && (idx < 0); i++) {
             if (strcmp(controls[i], token) == 0) {
                 printf("Recv: %s\n", token);
@@ -242,11 +234,9 @@ syncControlWaitFor(
 
 void
 syncControlSend(
-    const char *id,
     struct SyncControl *sync,
     int idx)
 {
-    printf("%s: %s()\n", id, __func__);
     assert(idx < numControls);
     fprintf(sync->sendCtrl, "%s\n", controls[idx]);
     fflush(sync->sendCtrl);
@@ -342,13 +332,14 @@ findHandshake(
 
 int
 handleProcessMessage(
+    int pid,
     DDS_Security_IdentityHandle handshake)
 {
     struct Message *msg;
     int idx;
     dds_duration_t timeout = DDS_SECS(10);
 
-    msg = test_authentication_plugin_read(MESSAGE_KIND_PROCESS_HANDSHAKE, 0, 0, handshake, timeout);
+    msg = test_authentication_plugin_read(pid, "PROCESS_HANDSHAKE", MESSAGE_KIND_PROCESS_HANDSHAKE, 0, 0, handshake, timeout);
     if (msg) {
         idx = findHandshake(msg->hsHandle);
         if (idx >= 0) {
@@ -362,16 +353,17 @@ handleProcessMessage(
 
 int
 handleBeginHandshakeRequest(
+    int pid,
     DDS_Security_IdentityHandle lid,
     DDS_Security_IdentityHandle rid)
 {
     struct Message *msg;
     dds_duration_t timeout = DDS_SECS(10);
 
-    msg = test_authentication_plugin_read(MESSAGE_KIND_BEGIN_HANDSHAKE_REQUEST, lid, rid, 0, timeout);
+    msg = test_authentication_plugin_read(pid, "BEGIN_HANDSHAKE_REQUEST", MESSAGE_KIND_BEGIN_HANDSHAKE_REQUEST, lid, rid, 0, timeout);
     if (msg) {
         addHandshake(msg->hsHandle, 1, msg->lidHandle, msg->ridHandle, msg->result);
-        return handleProcessMessage(msg->hsHandle);
+        return handleProcessMessage(pid, msg->hsHandle);
     }
 
     return 0;
@@ -379,16 +371,17 @@ handleBeginHandshakeRequest(
 
 int
 handleBeginHandshakeReply(
+    int pid,
     DDS_Security_IdentityHandle lid,
     DDS_Security_IdentityHandle rid)
 {
     struct Message *msg;
     dds_duration_t timeout = DDS_SECS(10);
 
-    msg = test_authentication_plugin_read(MESSAGE_KIND_BEGIN_HANDSHAKE_REPLY, lid, rid, 0, timeout);
+    msg = test_authentication_plugin_read(pid, "BEGIN_HANDSHAKE_REPLY", MESSAGE_KIND_BEGIN_HANDSHAKE_REPLY, lid, rid, 0, timeout);
     if (msg) {
         addHandshake(msg->hsHandle, 0, msg->lidHandle, msg->ridHandle, msg->result);
-        return handleProcessMessage(msg->hsHandle);
+        return handleProcessMessage(pid, msg->hsHandle);
     }
 
     return 0;
@@ -396,6 +389,7 @@ handleBeginHandshakeReply(
 
 int
 handleValidateRemoteIdentity(
+    int pid,
     DDS_Security_IdentityHandle lid,
     uint32_t count)
 {
@@ -404,20 +398,20 @@ handleValidateRemoteIdentity(
     DDS_Security_IdentityHandle rid;
     dds_duration_t timeout = DDS_SECS(10);
 
-    msg = test_authentication_plugin_read(MESSAGE_KIND_VALIDATE_REMOTE_IDENTITY, lid, 0, 0, timeout);
+    msg = test_authentication_plugin_read(pid, "VALIDATE_REMOTE_IDENTITY", MESSAGE_KIND_VALIDATE_REMOTE_IDENTITY, lid, 0, 0, timeout);
     while (msg && (count > 0) && r) {
         rid = msg->ridHandle;
         addRemoteIdentity(msg->ridHandle, &msg->rguid);
         if (msg->result == DDS_SECURITY_VALIDATION_PENDING_HANDSHAKE_REQUEST) {
-            r = handleBeginHandshakeRequest(lid, rid);
+            r = handleBeginHandshakeRequest(pid, lid, rid);
         } else if (msg->result == DDS_SECURITY_VALIDATION_PENDING_HANDSHAKE_MESSAGE) {
-            r = handleBeginHandshakeReply(lid, rid);
+            r = handleBeginHandshakeReply(pid, lid, rid);
         } else {
             r = 0;
         }
         count--;
         if (count) {
-            msg = test_authentication_plugin_read(MESSAGE_KIND_VALIDATE_REMOTE_IDENTITY, lid, 0, 0, timeout);
+            msg = test_authentication_plugin_read(pid, "VALIDATE_REMOTE_IDENTITY", MESSAGE_KIND_VALIDATE_REMOTE_IDENTITY, lid, 0, 0, timeout);
         }
     }
     return r && !count;
@@ -425,22 +419,21 @@ handleValidateRemoteIdentity(
 
 int
 validate_handshake(
-    const char *id)
+    int pid)
 {
     struct Message *msg;
     dds_duration_t timeout = DDS_SECS(10);
     int r = 1;
     int i;
 
-    printf("%s: %s()\n", id, __func__);
-    msg = test_authentication_plugin_read(MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, 0, 0, 0, timeout);
+    msg = test_authentication_plugin_read(pid, "VALIDATE_LOCAL_IDENTITY", MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, 0, 0, 0, timeout);
     while (msg) {
         addLocalIdentity(msg->lidHandle, &msg->lguid);
-        msg = test_authentication_plugin_read(MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, 0, 0, 0, timeout);
+        msg = test_authentication_plugin_read(pid, "VALIDATE_LOCAL_IDENTITY", MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, 0, 0, 0, timeout);
     }
 
     for (i = 0; r && (i < (int)numLocal); i++) {
-        r = handleValidateRemoteIdentity(localIdentityList[i].handle, numLocal);
+        r = handleValidateRemoteIdentity(pid, localIdentityList[i].handle, numLocal);
     }
 
     return r;
@@ -460,8 +453,7 @@ MPT_ProcessEntry (handshake_process1,
   (void)mpt__args__;
   (void)mpt__retval__;
 
-  syncControlInit("P1", &sync, recvCtrl, sendCtrl);
-  test_authentication_plugin_init();
+  test_authentication_plugin_init(1);
 
   ddsrt_setenv(URI_VARIABLE, config);
 
@@ -472,11 +464,12 @@ MPT_ProcessEntry (handshake_process1,
 
   ddsrt_setenv(URI_VARIABLE, "");
 
-  if (syncControlWaitFor("P1", &sync, 10) == CT_STARTED) {
-    syncControlSend("P1", &sync, CT_CONTINUE);
-    r = validate_handshake("P1");
-    syncControlSend("P1", &sync, CT_STOP);
-    remote = syncControlWaitFor("P1", &sync, 10);
+  syncControlInit(&sync, recvCtrl, sendCtrl);
+  if (syncControlWaitFor(&sync, 10) == CT_STARTED) {
+    syncControlSend(&sync, CT_CONTINUE);
+    r = validate_handshake(1);
+    syncControlSend(&sync, CT_STOP);
+    remote = syncControlWaitFor(&sync, 10);
     if (r && (remote == CT_SUCCESS)) {
     } else if (!r && (remote != CT_SUCCESS)) {
       printf("Test failed at A and B\n");
@@ -505,8 +498,7 @@ MPT_ProcessEntry (handshake_process2,
   (void)mpt__args__;
   (void)mpt__retval__;
 
-  syncControlInit("P2", &sync, recvCtrl, sendCtrl);
-  test_authentication_plugin_init();
+  test_authentication_plugin_init(2);
 
   ddsrt_setenv(URI_VARIABLE, config);
 
@@ -517,34 +509,35 @@ MPT_ProcessEntry (handshake_process2,
 
   ddsrt_setenv(URI_VARIABLE, "");
 
-  syncControlSend("P2", &sync, CT_STARTED);
-  if (syncControlWaitFor("P2", &sync, 10) != CT_CONTINUE) {
+  syncControlInit(&sync, recvCtrl, sendCtrl);
+  syncControlSend(&sync, CT_STARTED);
+  if (syncControlWaitFor(&sync, 10) != CT_CONTINUE) {
     goto failed_to_start;
   }
 
-  r = validate_handshake("P2");
+  r = validate_handshake(2);
 
-  (void)syncControlWaitFor("P2", &sync, 10);
+  (void)syncControlWaitFor(&sync, 10);
 
   /* Deleting the participant will delete all its children recursively as well. */
   rc = dds_delete (participant);
   if (rc != DDS_RETCODE_OK)
     DDS_FATAL("dds_delete: %s\n", dds_strretcode(-rc));
 
-  test_authentication_plugin_deinit();
+  test_authentication_plugin_deinit(2);
 
   if (r) {
-    syncControlSend("P2", &sync, CT_SUCCESS);
+    syncControlSend(&sync, CT_SUCCESS);
   } else {
-    syncControlSend("P2", &sync, CT_FAILED);
+    syncControlSend(&sync, CT_FAILED);
   }
 
-  syncControlDeinit("P2", &sync);
+  syncControlDeinit(&sync);
 
   MPT_ASSERT(r, "success");
 
 failed_to_start:
-  syncControlSend("P2", &sync, CT_FAILED);
-  syncControlDeinit("P2", &sync);
+  syncControlSend(&sync, CT_FAILED);
+  syncControlDeinit(&sync);
   MPT_ASSERT(0, "failed");
 }

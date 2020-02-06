@@ -39,9 +39,12 @@ createMessage(
     const DDS_Security_GUID_t *lguid,
     const DDS_Security_GUID_t *rguid,
     DDS_Security_ValidationResult_t result,
-    const DDS_Security_DataHolder *token)
+    const DDS_Security_DataHolder *token,
+	void *instance)
 {
     struct Message *msg;
+
+    printf("%s(): instance:%p\n", __func__, instance);
 
     msg = ddsrt_malloc(sizeof(*msg));
     memset(msg, 0, sizeof(*msg));
@@ -59,6 +62,7 @@ createMessage(
     if (token) {
         DDS_Security_DataHolder_copy(&msg->token, token);
     }
+    msg->instance = instance;
 
     return msg;
 }
@@ -196,7 +200,6 @@ test_authentication_plugin_read(
     DDS_Security_IdentityHandle hsHandle,
     dds_duration_t timeout)
 {
-    printf("%s: started\n", __func__);
     return readMessage(&testMessagaQueue, kind, lidHandle, ridHandle, hsHandle, timeout);
 }
 
@@ -230,7 +233,7 @@ test_validate_local_identity(
     result = impl->instance->validate_local_identity(
                 impl->instance, local_identity_handle, adjusted_participant_guid, domain_id, participant_qos, candidate_participant_guid, ex);
 
-    msg = createMessage(MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, *local_identity_handle, 0, 0, adjusted_participant_guid, NULL, result, NULL);
+    msg = createMessage(MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, *local_identity_handle, 0, 0, adjusted_participant_guid, NULL, result, NULL, instance);
     insertMessage(&testMessagaQueue, msg);
 
     return result;
@@ -299,7 +302,7 @@ test_validate_remote_identity(
               impl->instance, remote_identity_handle, local_auth_request_token, remote_auth_request_token,
               local_identity_handle, remote_identity_token, remote_participant_guid, ex);
 
-    msg = createMessage(MESSAGE_KIND_VALIDATE_REMOTE_IDENTITY, local_identity_handle, *remote_identity_handle, 0, NULL, remote_participant_guid, result, local_auth_request_token);
+    msg = createMessage(MESSAGE_KIND_VALIDATE_REMOTE_IDENTITY, local_identity_handle, *remote_identity_handle, 0, NULL, remote_participant_guid, result, local_auth_request_token, instance);
     insertMessage(&testMessagaQueue, msg);
 
     return result;
@@ -324,7 +327,7 @@ test_begin_handshake_request(
               impl->instance, handshake_handle, handshake_message, initiator_identity_handle,
               replier_identity_handle, serialized_local_participant_data, ex);
 
-    msg = createMessage(MESSAGE_KIND_BEGIN_HANDSHAKE_REQUEST, initiator_identity_handle, replier_identity_handle, *handshake_handle, NULL, NULL, result, handshake_message);
+    msg = createMessage(MESSAGE_KIND_BEGIN_HANDSHAKE_REQUEST, initiator_identity_handle, replier_identity_handle, *handshake_handle, NULL, NULL, result, handshake_message, instance);
     insertMessage(&testMessagaQueue, msg);
 
     return result;
@@ -351,7 +354,7 @@ test_begin_handshake_reply(
               impl->instance, handshake_handle, handshake_message_out, handshake_message_in,
               initiator_identity_handle, replier_identity_handle, serialized_local_participant_data, ex);
 
-    msg = createMessage(MESSAGE_KIND_BEGIN_HANDSHAKE_REPLY, replier_identity_handle, initiator_identity_handle, *handshake_handle, NULL, NULL, result, handshake_message_out);
+    msg = createMessage(MESSAGE_KIND_BEGIN_HANDSHAKE_REPLY, replier_identity_handle, initiator_identity_handle, *handshake_handle, NULL, NULL, result, handshake_message_out, instance);
     insertMessage(&testMessagaQueue, msg);
 
     return result;
@@ -371,7 +374,7 @@ static DDS_Security_ValidationResult_t test_process_handshake(
     printf("%s: started\n", __func__);
     result = impl->instance->process_handshake(impl->instance, handshake_message_out, handshake_message_in, handshake_handle, ex);
 
-    msg = createMessage(MESSAGE_KIND_PROCESS_HANDSHAKE, 0, 0, handshake_handle, NULL, NULL, result, handshake_message_out);
+    msg = createMessage(MESSAGE_KIND_PROCESS_HANDSHAKE, 0, 0, handshake_handle, NULL, NULL, result, handshake_message_out, instance);
     insertMessage(&testMessagaQueue, msg);
 
     return result;
@@ -479,6 +482,7 @@ static DDS_Security_boolean test_return_sharedsecret_handle(
 int32_t init_test_authentication( const char *argument, void **context)
 {
     struct dds_security_authentication_impl *authentication;
+    int32_t ret;
 
     printf("%s: started\n", __func__);
     authentication = ddsrt_malloc(sizeof(*authentication));
@@ -503,7 +507,22 @@ int32_t init_test_authentication( const char *argument, void **context)
     authentication->base.return_sharedsecret_handle = &test_return_sharedsecret_handle;
 
     *context = authentication;
-    return init_authentication(argument, (void**)&authentication->instance);
+    ret = init_authentication(argument, (void**)&authentication->instance);
+    printf("%s: instance:%p\n", __func__, authentication->instance);
+
+// insert message into queue
+    const DDS_Security_IdentityHandle lid = (DDS_Security_IdentityHandle)0;
+    const DDS_Security_IdentityHandle rid = (DDS_Security_IdentityHandle)0;
+    DDS_Security_HandshakeHandle hs = (DDS_Security_HandshakeHandle)0;
+    struct Message *msg1 = createMessage(MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, lid, rid, hs, NULL, NULL, 0, NULL, authentication->instance);
+    insertMessage(&testMessagaQueue, msg1);
+    struct Message *msg2 = createMessage(MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, lid, rid, hs, NULL, NULL, 0, NULL, authentication->instance);
+    insertMessage(&testMessagaQueue, msg2);
+    struct Message *msg3 = createMessage(MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, lid, rid, hs, NULL, NULL, 0, NULL, authentication->instance);
+    insertMessage(&testMessagaQueue, msg3);
+
+    printf("%s: finished, ret:%d,instance:%p\n", __func__, (int)ret, authentication->instance);
+    return ret;
 }
 
 int32_t finalize_test_authentication(void *instance)

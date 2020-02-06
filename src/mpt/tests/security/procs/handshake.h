@@ -59,19 +59,16 @@ struct SyncControl {
 
 void
 syncControlInit (
-    const char *id,
     struct SyncControl *sync,
     const char *recvName,
     const char *sendName);
 
 void
 syncControlDeinit(
-    const char *id,
     struct SyncControl *sync);
 
 int
 syncControlRead(
-    const char *id,
    struct SyncControl *sync,
    char *token,
    int size,
@@ -79,13 +76,11 @@ syncControlRead(
 
 int
 syncControlWaitFor(
-    const char *id,
     struct SyncControl *sync,
     int timeout);
 
 void
 syncControlSend(
-    const char *id,
     struct SyncControl *sync,
     int idx);
 
@@ -121,26 +116,30 @@ findHandshake(
 
 int
 handleProcessMessage(
+    int pid,
     DDS_Security_IdentityHandle handshake);
 
 int
 handleBeginHandshakeRequest(
+    int pid,
     DDS_Security_IdentityHandle lid,
     DDS_Security_IdentityHandle rid);
 
 int
 handleBeginHandshakeReply(
+    int pid,
     DDS_Security_IdentityHandle lid,
     DDS_Security_IdentityHandle rid);
 
 int
 handleValidateRemoteIdentity(
+    int pid,
     DDS_Security_IdentityHandle lid,
     uint32_t count);
 
 int
 validate_handshake(
-    const char *id);
+    int pid);
 
 void handshake_init (void);
 void handshake_fini (void);

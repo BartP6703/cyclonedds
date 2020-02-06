@@ -128,6 +128,9 @@ messageMatched(
 {
     int r = 1;
 
+    printf("%s(arg): kind:%d,lidHandle:%d,ridHandle:%d,hsHandle:%d\n", __func__, (int)     kind, (int)     lidHandle, (int)     ridHandle, (int)     hsHandle);
+    printf("%s(msg): kind:%d,lidHandle:%d,ridHandle:%d,hsHandle:%d\n", __func__, (int)msg->kind, (int)msg->lidHandle, (int)msg->ridHandle, (int)msg->hsHandle);
+
     if (msg->kind != kind) {
         r = 0;
     } else if (lidHandle && msg->lidHandle != lidHandle) {
@@ -143,6 +146,9 @@ messageMatched(
 
 static struct Message *
 readMessage(
+    int pid,
+    const char *id,
+    int _id,
     struct MessageQueue *queue,
     MessageKind_t kind,
     DDS_Security_IdentityHandle lidHandle,
@@ -160,6 +166,7 @@ readMessage(
         prev = NULL;
         while (cur && !msg) {
             if (messageMatched(cur, kind, lidHandle, ridHandle, hsHandle)) {
+                printf("%s(pid:%d,id:\"%s\",_id:%d) matched\n", __func__, pid, id, _id);
                 msg = cur;
                 if (prev) {
                     prev->next = msg->next;
@@ -170,19 +177,24 @@ readMessage(
                     queue->tail = prev;
                 }
             } else {
+                printf("%s(pid:%d,id:\"%s\",_id:%d) not matched\n", __func__, pid, id, _id);
                 prev = cur;
                 cur = cur->next;
             }
         }
         if (!msg) {
             if (!ddsrt_cond_waitfor(&queue->cond, &queue->lock, timeout)) {
+                printf("%s(pid:%d,id:\"%s\",_id:%d) "/*"!ddsrt_cond_waitfor -> "*/"timeout\n", __func__, pid, id, _id);
                 r = 0;
-            }
+            } else {
+                printf("%s(pid:%d,id:\"%s\",_id:%d) ddsrt_cond_waitfor\n", __func__, pid, id, _id);
+	    }
         }
     } while (r && !msg);
 
     ddsrt_mutex_unlock(&queue->lock);
 
+    printf("%s(pid:%d,id:\"%s\",_id:%d) return:%p\n", __func__, pid, id, _id, msg);
     return msg;
 }
 
@@ -190,14 +202,17 @@ readMessage(
 
 struct Message *
 test_authentication_plugin_read(
+    int pid,
+    const char *msg,
     MessageKind_t kind,
     DDS_Security_IdentityHandle lidHandle,
     DDS_Security_IdentityHandle ridHandle,
     DDS_Security_IdentityHandle hsHandle,
     dds_duration_t timeout)
 {
+    static int _id = 0;
     struct Message *ret;
-    ret = readMessage(&testMessagaQueue, kind, lidHandle, ridHandle, hsHandle, timeout);
+    ret = readMessage(pid, msg, _id++, &testMessagaQueue, kind, lidHandle, ridHandle, hsHandle, timeout);
     return ret;
 }
 
@@ -226,12 +241,14 @@ test_validate_local_identity(
     DDS_Security_ValidationResult_t result;
     struct Message *msg;
 
+    printf("%s()\n", __func__);
     result = impl->instance->validate_local_identity(
                 impl->instance, local_identity_handle, adjusted_participant_guid, domain_id, participant_qos, candidate_participant_guid, ex);
 
     msg = createMessage(MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, *local_identity_handle, 0, 0, adjusted_participant_guid, NULL, result, NULL);
     insertMessage(&testMessagaQueue, msg);
 
+    printf("%s() returns %d\n", __func__, (int)result);
     return result;
 }
 
@@ -288,6 +305,7 @@ test_validate_remote_identity(
     DDS_Security_ValidationResult_t result;
     struct Message *msg;
 
+    printf("%s()\n", __func__);
     result = impl->instance->validate_remote_identity(
               impl->instance, remote_identity_handle, local_auth_request_token, remote_auth_request_token,
               local_identity_handle, remote_identity_token, remote_participant_guid, ex);
@@ -295,6 +313,7 @@ test_validate_remote_identity(
     msg = createMessage(MESSAGE_KIND_VALIDATE_REMOTE_IDENTITY, local_identity_handle, *remote_identity_handle, 0, NULL, remote_participant_guid, result, local_auth_request_token);
     insertMessage(&testMessagaQueue, msg);
 
+    printf("%s() returns %d\n", __func__, (int)result);
     return result;
 }
 
@@ -312,6 +331,7 @@ test_begin_handshake_request(
     DDS_Security_ValidationResult_t result;
     struct Message *msg;
 
+    printf("%s()\n", __func__);
     result = impl->instance->begin_handshake_request(
               impl->instance, handshake_handle, handshake_message, initiator_identity_handle,
               replier_identity_handle, serialized_local_participant_data, ex);
@@ -319,6 +339,7 @@ test_begin_handshake_request(
     msg = createMessage(MESSAGE_KIND_BEGIN_HANDSHAKE_REQUEST, initiator_identity_handle, replier_identity_handle, *handshake_handle, NULL, NULL, result, handshake_message);
     insertMessage(&testMessagaQueue, msg);
 
+    printf("%s() returns %d\n", __func__, (int)result);
     return result;
 }
 
@@ -338,6 +359,7 @@ test_begin_handshake_reply(
     DDS_Security_ValidationResult_t result;
     struct Message *msg;
 
+    printf("%s()\n", __func__);
     result = impl->instance->begin_handshake_reply(
               impl->instance, handshake_handle, handshake_message_out, handshake_message_in,
               initiator_identity_handle, replier_identity_handle, serialized_local_participant_data, ex);
@@ -345,6 +367,7 @@ test_begin_handshake_reply(
     msg = createMessage(MESSAGE_KIND_BEGIN_HANDSHAKE_REPLY, replier_identity_handle, initiator_identity_handle, *handshake_handle, NULL, NULL, result, handshake_message_out);
     insertMessage(&testMessagaQueue, msg);
 
+    printf("%s() returns %d\n", __func__, (int)result);
     return result;
 }
 
@@ -359,11 +382,13 @@ static DDS_Security_ValidationResult_t test_process_handshake(
     DDS_Security_ValidationResult_t result;
     struct Message *msg;
 
+    printf("%s()\n", __func__);
     result = impl->instance->process_handshake(impl->instance, handshake_message_out, handshake_message_in, handshake_handle, ex);
 
     msg = createMessage(MESSAGE_KIND_PROCESS_HANDSHAKE, 0, 0, handshake_handle, NULL, NULL, result, handshake_message_out);
     insertMessage(&testMessagaQueue, msg);
 
+    printf("%s() returns %d\n", __func__, (int)result);
     return result;
 }
 
@@ -457,10 +482,12 @@ static DDS_Security_boolean test_return_sharedsecret_handle(
     return impl->instance->return_sharedsecret_handle(impl->instance, sharedsecret_handle, ex);
 }
 
-int32_t init_test_authentication( const char *argument, void **context)
+int32_t init_test_authentication(const char *argument, void **context)
 {
     struct dds_security_authentication_impl *authentication;
+    int32_t ret;
 
+	printf("%s():\n", __func__);
     authentication = ddsrt_malloc(sizeof(*authentication));
 
     //allocate implementation wrapper
@@ -483,26 +510,51 @@ int32_t init_test_authentication( const char *argument, void **context)
     authentication->base.return_sharedsecret_handle = &test_return_sharedsecret_handle;
 
     *context = authentication;
-    return init_authentication(argument, (void**)&authentication->instance);
+    ret = init_authentication(argument, (void**)&authentication->instance);
+
+// insert message into queue
+    const DDS_Security_IdentityHandle initiator_identity_handle = (DDS_Security_IdentityHandle)0;
+    const DDS_Security_IdentityHandle replier_identity_handle = (DDS_Security_IdentityHandle)0;
+    DDS_Security_HandshakeHandle handshake_handle = (DDS_Security_HandshakeHandle)0;
+    struct Message *msg1 = createMessage(MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, initiator_identity_handle, replier_identity_handle, handshake_handle, NULL, NULL, 0, NULL);
+    printf("insertMessage() %p\n", msg1);
+    insertMessage(&testMessagaQueue, msg1);
+    struct Message *msg2 = createMessage(MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, initiator_identity_handle, replier_identity_handle, handshake_handle, NULL, NULL, 0, NULL);
+    printf("insertMessage() %p\n", msg2);
+    insertMessage(&testMessagaQueue, msg2);
+    struct Message *msg3 = createMessage(MESSAGE_KIND_VALIDATE_LOCAL_IDENTITY, initiator_identity_handle, replier_identity_handle, handshake_handle, NULL, NULL, 0, NULL);
+    printf("insertMessage() %p\n", msg3);
+    insertMessage(&testMessagaQueue, msg3);
+
+	printf("%s(): ret:%d, instance:%p\n", __func__, (int)ret, authentication->instance);
+    return ret;
 }
 
 int32_t finalize_test_authentication(void *instance)
 {
     struct dds_security_authentication_impl *authentication = instance;
+    int32_t ret;
 
-    return finalize_authentication(authentication->instance);
+	printf("%s():\n", __func__);
+    ret = finalize_authentication(authentication->instance);
+	printf("%s(): ret:%d\n", __func__, ret);
+    return ret;
 }
 
-int test_authentication_plugin_init(void)
+int test_authentication_plugin_init(int pid)
 {
+	printf("%s(pid:%d):\n", __func__, pid);
     initMessageQueue(&testMessagaQueue);
 
+	printf("%s(pid:%d): ret:%d\n", __func__, pid, 1);
     return 1;
 }
 
-int test_authentication_plugin_deinit(void)
+int test_authentication_plugin_deinit(int pid)
 {
+	printf("%s(pid:%d):\n", __func__, pid);
     deinitMessageQueue(&testMessagaQueue);
 
+	printf("%s(pid:%d): ret:%d\n", __func__, pid, 1);
     return 1;
 }
