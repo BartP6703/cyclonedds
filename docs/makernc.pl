@@ -344,7 +344,7 @@ sub conv_to_rnc {
   } elsif ($fs->{kstr} eq "Enum") {
     die unless exists $enum_values{$fs->{typehint}};
     my @vs = split /;/, $enum_values{$fs->{typehint}};
-    printf $fh "${indent}  ${sep}%s\n", (join '|', map { "\"$_\"" } @vs);
+    printf $fh "${indent}  ${sep}(%s)\n", (join '|', map { "\"$_\"" } @vs);
   } elsif ($fs->{kstr} eq "Int") {
     printf $fh "${indent}  ${sep}xsd:integer\n";
     #if (exists $range{$lctn} || exists $range{$fs->{typehint}}) {
@@ -475,7 +475,7 @@ sub conv_table {
         $fqname1 = "$fqname/$fs->{name}";
         $elems++;
       }
-      my $prefix1 = ($fs->{table} eq "unsupp_cfgelems") ? "<b>Internal</b>" : $prefix;
+      my $prefix1 = ($fs->{table} eq "internal_cfgelems") ? "<b>Internal</b>" : $prefix;
       &$convsub ($fh, $fs, $fs->{name}, $fqname1, $indent, $prefix1, $closure);
     }
   }
