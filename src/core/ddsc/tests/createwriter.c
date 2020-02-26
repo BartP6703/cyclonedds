@@ -51,8 +51,8 @@ void createwriter_init_md (void)
   /* Domains for pub and sub use a different domain id, but the portgain setting
    * in configuration is 0, so that both domains will map to the same port number.
    * This allows to create two domains in a single test process. */
-  char *conf_pub = ddsrt_expand_envvars(DDS_CONFIG_NO_PORT_GAIN, DDS_DOMAINID_PUB);
-  char *conf_sub = ddsrt_expand_envvars(DDS_CONFIG_NO_PORT_GAIN, DDS_DOMAINID_SUB);
+  char *conf_pub = ddsrt_expand_envvars(DDS_CONFIG_NO_PORT_GAIN_LOG, DDS_DOMAINID_PUB);
+  char *conf_sub = ddsrt_expand_envvars(DDS_CONFIG_NO_PORT_GAIN_LOG, DDS_DOMAINID_SUB);
   g_pub_domain = dds_create_domain(DDS_DOMAINID_PUB, conf_pub);
   g_sub_domain = dds_create_domain(DDS_DOMAINID_SUB, conf_sub);
   dds_free(conf_pub);
@@ -554,7 +554,7 @@ static void start_system(void)
   ddsrt_mutex_destroy(PUBLISHER_LOCK);
 }
 
-CU_Test(discstress, createwriter_md, .init = createwriter_init_md, .fini = createwriter_fini)
+CU_Test(discstress, createwriter_md, .init = createwriter_init_md, .fini = createwriter_fini, .timeout = 60)
 {
   start_system();
 }
