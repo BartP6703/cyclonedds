@@ -15,6 +15,7 @@ idlc_generate(RoundTrip RoundTrip.idl)
 idlc_generate(Space Space.idl)
 idlc_generate(TypesArrayKey TypesArrayKey.idl)
 idlc_generate(WriteTypes WriteTypes.idl)
+idlc_generate(createwriterdata createwriterdata.idl)
 
 set(ddsc_test_sources
     "basic.c"
@@ -55,7 +56,8 @@ set(ddsc_test_sources
     "whc.c"
     "write.c"
     "write_various_types.c"
-    "writer.c")
+    "writer.c"
+    "createwriter.c")
 
 if(ENABLE_LIFESPAN)
   list(APPEND ddsc_test_sources "lifespan.c")
@@ -71,7 +73,7 @@ target_include_directories(
   "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/src/include/>"
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../ddsc/src>"
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../ddsi/include>")
-target_link_libraries(cunit_ddsc PRIVATE RoundTrip Space TypesArrayKey WriteTypes ddsc)
+target_link_libraries(cunit_ddsc PRIVATE RoundTrip Space TypesArrayKey WriteTypes createwriterdata ddsc)
 
 # Setup environment for config-tests
 get_test_property(CUnit_ddsc_config_simple_udp ENVIRONMENT CUnit_ddsc_config_simple_udp_env)
