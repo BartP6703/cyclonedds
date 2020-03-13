@@ -2172,7 +2172,7 @@ static int reorder_insert_gap (struct nn_reorder *reorder, struct nn_rdata *rdat
   return 1;
 }
 
-nn_reorder_result_t nn_reorder_gap (struct nn_rsample_chain *sc, struct nn_reorder *reorder, struct nn_rdata *rdata, seqno_t min, seqno_t maxp1, int *refcount_adjust)
+nn_reorder_result_t nn_reorder_gap (struct receiver_state *rst, struct nn_rsample_chain *sc, struct nn_reorder *reorder, struct nn_rdata *rdata, seqno_t min, seqno_t maxp1, int *refcount_adjust)
 {
   /* All sequence numbers in [min,maxp1) are unavailable so any
      fragments in that range must be discarded.  Used both for
@@ -2202,18 +2202,18 @@ nn_reorder_result_t nn_reorder_gap (struct nn_rsample_chain *sc, struct nn_reord
   struct nn_rsample *coalesced;
   int valuable;
 
-  TRACE (reorder, "reorder_gap(%p %c, [%"PRId64",%"PRId64") data %p) expecting %"PRId64":\n",
+  RSTTRACE ("reorder_gap(%p %c, [%"PRId64",%"PRId64") data %p) expecting %"PRId64":\n",
          (void *) reorder, reorder_mode_as_char (reorder),
          min, maxp1, (void *) rdata, reorder->next_seq);
 
   if (maxp1 <= reorder->next_seq)
   {
-    TRACE (reorder, "  too old\n");
+    RSTTRACE ("  too old\n");
     return NN_REORDER_TOO_OLD;
   }
   if (reorder->mode != NN_REORDER_MODE_NORMAL)
   {
-    TRACE (reorder, "  special mode => don't care\n");
+    RSTTRACE ("  special mode => don't care\n");
     return NN_REORDER_REJECT;
   }
 
@@ -2221,10 +2221,10 @@ nn_reorder_result_t nn_reorder_gap (struct nn_rsample_chain *sc, struct nn_reord
   if ((coalesced = coalesce_intervals_touching_range (reorder, min, maxp1, &valuable)) == NULL)
   {
     nn_reorder_result_t res;
-    TRACE (reorder, "  coalesced = null\n");
+    RSTTRACE ("  coalesced = null\n");
     if (min <= reorder->next_seq)
     {
-      TRACE (reorder, "  next expected: %"PRId64"\n", maxp1);
+      RSTTRACE ("  next expected: %"PRId64"\n", maxp1);
       reorder->next_seq = maxp1;
       res = NN_REORDER_ACCEPT;
     }
@@ -2232,17 +2232,17 @@ nn_reorder_result_t nn_reorder_gap (struct nn_rsample_chain *sc, struct nn_reord
              (reorder->max_sampleiv == NULL || min > reorder->max_sampleiv->u.reorder.maxp1))
     {
       /* n_samples = max_samples => (max_sampleiv = NULL <=> max_samples = 0) */
-      TRACE (reorder, "  discarding gap: max_samples reached and gap at end\n");
+      RSTTRACE ("  discarding gap: max_samples reached and gap at end\n");
       res = NN_REORDER_REJECT;
     }
     else if (!reorder_insert_gap (reorder, rdata, min, maxp1))
     {
-      TRACE (reorder, "  store gap failed: no memory\n");
+      RSTTRACE ("  store gap failed: no memory\n");
       res = NN_REORDER_REJECT;
     }
     else
     {
-      TRACE (reorder, "  storing gap\n");
+      RSTTRACE ("  storing gap\n");
       res = NN_REORDER_ACCEPT;
       /* do not let radmin grow beyond max_samples; there is a small
          possibility that we insert it & delete it immediately
@@ -2258,7 +2258,7 @@ nn_reorder_result_t nn_reorder_gap (struct nn_rsample_chain *sc, struct nn_reord
   }
   else if (coalesced->u.reorder.min <= reorder->next_seq)
   {
-    TRACE (reorder, "  coalesced = [%"PRId64",%"PRId64") @ %p containing %"PRId32" samples\n",
+    RSTTRACE ("  coalesced = [%"PRId64",%"PRId64") @ %p containing %"PRId32" samples\n",
            coalesced->u.reorder.min, coalesced->u.reorder.maxp1,
            (void *) coalesced, coalesced->u.reorder.n_samples);
     ddsrt_avl_delete (&reorder_sampleivtree_treedef, &reorder->sampleivtree, coalesced);
@@ -2266,7 +2266,7 @@ nn_reorder_result_t nn_reorder_gap (struct nn_rsample_chain *sc, struct nn_reord
       assert (min <= reorder->next_seq);
     reorder->next_seq = coalesced->u.reorder.maxp1;
     reorder->max_sampleiv = ddsrt_avl_find_max (&reorder_sampleivtree_treedef, &reorder->sampleivtree);
-    TRACE (reorder, "  next expected: %"PRId64"\n", reorder->next_seq);
+    RSTTRACE ("  next expected: %"PRId64"\n", reorder->next_seq);
     *sc = coalesced->u.reorder.sc;
 
     /* Adjust n_samples */
@@ -2277,7 +2277,7 @@ nn_reorder_result_t nn_reorder_gap (struct nn_rsample_chain *sc, struct nn_reord
   }
   else
   {
-    TRACE (reorder, "  coalesced = [%"PRId64",%"PRId64") @ %p - that is all\n",
+    RSTTRACE ("  coalesced = [%"PRId64",%"PRId64") @ %p - that is all\n",
            coalesced->u.reorder.min, coalesced->u.reorder.maxp1, (void *) coalesced);
     reorder->max_sampleiv = ddsrt_avl_find_max (&reorder_sampleivtree_treedef, &reorder->sampleivtree);
     return valuable ? NN_REORDER_ACCEPT : NN_REORDER_REJECT;

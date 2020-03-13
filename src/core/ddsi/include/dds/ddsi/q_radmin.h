@@ -225,7 +225,7 @@ void nn_reorder_free (struct nn_reorder *r);
 struct nn_rsample *nn_reorder_rsample_dup_first (struct nn_rmsg *rmsg, struct nn_rsample *rsampleiv);
 struct nn_rdata *nn_rsample_fragchain (struct nn_rsample *rsample);
 nn_reorder_result_t nn_reorder_rsample (struct nn_rsample_chain *sc, struct nn_reorder *reorder, struct nn_rsample *rsampleiv, int *refcount_adjust, int delivery_queue_full_p);
-nn_reorder_result_t nn_reorder_gap (struct nn_rsample_chain *sc, struct nn_reorder *reorder, struct nn_rdata *rdata, seqno_t min, seqno_t maxp1, int *refcount_adjust);
+nn_reorder_result_t nn_reorder_gap (struct receiver_state *rst, struct nn_rsample_chain *sc, struct nn_reorder *reorder, struct nn_rdata *rdata, seqno_t min, seqno_t maxp1, int *refcount_adjust);
 int nn_reorder_wantsample (struct nn_reorder *reorder, seqno_t seq);
 unsigned nn_reorder_nackmap (struct nn_reorder *reorder, seqno_t base, seqno_t maxseq, struct nn_sequence_number_set_header *map, uint32_t *mapbits, uint32_t maxsz, int notail);
 seqno_t nn_reorder_next_seq (const struct nn_reorder *reorder);

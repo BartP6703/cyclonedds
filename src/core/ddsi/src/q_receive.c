@@ -1163,7 +1163,7 @@ static int handle_Heartbeat (struct receiver_state *rst, nn_etime_t tnow, struct
     nn_reorder_result_t res;
     nn_defrag_notegap (pwr->defrag, 1, lastseq + 1);
     gap = nn_rdata_newgap (rmsg);
-    res = nn_reorder_gap (&sc, pwr->reorder, gap, 1, lastseq + 1, &refc_adjust);
+    res = nn_reorder_gap (rst, &sc, pwr->reorder, gap, 1, lastseq + 1, &refc_adjust);
     /* proxy writer is not accepting data until it has received a heartbeat, so
        there can't be any data to deliver */
     assert (res <= 0);
@@ -1198,7 +1198,7 @@ static int handle_Heartbeat (struct receiver_state *rst, nn_etime_t tnow, struct
     int refc_adjust = 0;
     nn_reorder_result_t res;
     gap = nn_rdata_newgap (rmsg);
-    if ((res = nn_reorder_gap (&sc, pwr->reorder, gap, 1, firstseq, &refc_adjust)) > 0)
+    if ((res = nn_reorder_gap (rst, &sc, pwr->reorder, gap, 1, firstseq, &refc_adjust)) > 0)
     {
       if (pwr->deliver_synchronously)
         deliver_user_data_synchronously (&sc, NULL);
@@ -1219,7 +1219,7 @@ static int handle_Heartbeat (struct receiver_state *rst, nn_etime_t tnow, struct
             break;
           case PRMSS_OUT_OF_SYNC: {
             struct nn_reorder *ro = wn->u.not_in_sync.reorder;
-            if ((res = nn_reorder_gap (&sc, ro, gap, 1, firstseq, &refc_adjust)) > 0)
+            if ((res = nn_reorder_gap (rst, &sc, ro, gap, 1, firstseq, &refc_adjust)) > 0)
             {
               if (pwr->deliver_synchronously)
                 deliver_user_data_synchronously (&sc, &wn->rd_guid);
@@ -1534,25 +1534,54 @@ static int handle_InfoTS (const struct receiver_state *rst, const InfoTS_t *msg,
   return 1;
 }
 
-static int handle_one_gap (struct proxy_writer *pwr, struct pwr_rd_match *wn, seqno_t a, seqno_t b, struct nn_rdata *gap, int *refc_adjust)
+#define print_nn(txt, id, nn, max, test) \
+  do { \
+    RSTTRACE("  %s: id:%d: {", txt, id); \
+    for (int i = 0; i < max; i++) { \
+      if (nn[i] != 0) { \
+        RSTTRACE(" %2d:%2d%c", i, nn[i], nn[i] != _nn[i] ? '*' : ' '); \
+      } \
+    } \
+    RSTTRACE(" }"); \
+    if ((test) != -1) { \
+      RSTTRACE(" => %s", (test) == 0 ? "false" : "true"); \
+    } \
+    for (int i = 0; i < max; i++) { \
+      _nn[i] = nn[i]; \
+    } \
+  } while (0)
+
+static int handle_one_gap (int id, struct receiver_state *rst, struct proxy_writer *pwr, struct pwr_rd_match *wn, seqno_t a, seqno_t b, struct nn_rdata *gap, int *refc_adjust)
 {
   struct nn_rsample_chain sc;
   nn_reorder_result_t res;
   int gap_was_valuable = 0;
+  static int nn[50] = {0};
+  static int _nn[50] = {0};
   ASSERT_MUTEX_HELD (&pwr->e.lock);
 
+  nn[0]++;
   /* Clean up the defrag admin: no fragments of a missing sample will
      be arriving in the future */
+  RSTTRACE("1:{a:%"PRId64",b:%"PRId64"}", a, b);
   nn_defrag_notegap (pwr->defrag, a, b);
 
   /* Primary reorder: the gap message may cause some samples to become
      deliverable. */
-  if ((res = nn_reorder_gap (&sc, pwr->reorder, gap, a, b, refc_adjust)) > 0)
+  int mm = 0;
+  RSTTRACE("2:{a:%"PRId64",b:%"PRId64"}", a, b);
+  if ((res = nn_reorder_gap (rst, &sc, pwr->reorder, gap, a, b, refc_adjust)) > 0)
   {
-    if (pwr->deliver_synchronously)
+    nn[1]++; //<error
+    mm++;
+    if (pwr->deliver_synchronously) {
+      nn[2]++; //<error
+      mm++;
       deliver_user_data_synchronously (&sc, NULL);
-    else
+    } else {
+      nn[3]++;
       nn_dqueue_enqueue (pwr->dqueue, &sc, res);
+    }
   }
 
   /* If the result was REJECT or TOO_OLD, then this gap didn't add
@@ -1560,31 +1589,44 @@ static int handle_one_gap (struct proxy_writer *pwr, struct pwr_rd_match *wn, se
      When the result is either ACCEPT or a sample chain, it clearly
      meant something. */
   DDSRT_STATIC_ASSERT_CODE (NN_REORDER_ACCEPT == 0);
-  if (res >= 0)
+  if (res >= 0) {
+    nn[4]++; //<error
+    mm++;
     gap_was_valuable = 1;
+  }
 
   /* Out-of-sync readers never deal with samples with a sequence
      number beyond end_of_tl_seq -- and so it needn't be bothered
      with gaps that start beyond that number */
   if (wn != NULL && wn->in_sync != PRMSS_SYNC)
   {
+    nn[5]++;
     switch (wn->in_sync)
     {
       case PRMSS_SYNC:
+        nn[6]++;
         assert(0);
         break;
       case PRMSS_TLCATCHUP:
+    	nn[7]++;
         break;
       case PRMSS_OUT_OF_SYNC:
-        if ((res = nn_reorder_gap (&sc, wn->u.not_in_sync.reorder, gap, a, b, refc_adjust)) > 0)
+    	RSTTRACE("3:{a:%"PRId64",b:%"PRId64"}", a, b);
+        if ((res = nn_reorder_gap (rst, &sc, wn->u.not_in_sync.reorder, gap, a, b, refc_adjust)) > 0)
         {
-          if (pwr->deliver_synchronously)
+          if (pwr->deliver_synchronously) {
+        	nn[8]++;
             deliver_user_data_synchronously (&sc, &wn->rd_guid);
-          else
+          } else {
+        	nn[9]++;
             nn_dqueue_enqueue1 (pwr->dqueue, &wn->rd_guid, &sc, res);
+          }
+          nn[10]++;
         }
-        if (res >= 0)
+        if (res >= 0) {
+          nn[11]++;
           gap_was_valuable = 1;
+        }
         break;
     }
 
@@ -1593,8 +1635,13 @@ static int handle_one_gap (struct proxy_writer *pwr, struct pwr_rd_match *wn, se
        The return value of reorder_gap _is_ sufficiently precise, but
        why not simply check?  It isn't a very expensive test. */
     maybe_set_reader_in_sync (pwr, wn, b-1);
+    nn[12]++;
   }
 
+  nn[13]++;
+  char _1g[80] = {0};
+  sprintf(_1g, "1g(%d)", id);
+  print_nn(_1g, 1, nn, 50, mm == 3 ? 1 : 0);
   return gap_was_valuable;
 }
 
@@ -1623,6 +1670,8 @@ static int handle_Gap (struct receiver_state *rst, nn_etime_t tnow, struct nn_rm
   seqno_t gapstart, listbase;
   int32_t last_included_rel;
   uint32_t listidx;
+  static int nn[50] = {0};
+  //static int _nn[50] = {0};
 
   src.prefix = rst->src_guid_prefix;
   src.entityid = msg->writerId;
@@ -1635,38 +1684,51 @@ static int handle_Gap (struct receiver_state *rst, nn_etime_t tnow, struct nn_rm
   /* There is no _good_ reason for a writer to start the bitmap with a
      1 bit, but check for it just in case, to reduce the number of
      sequence number gaps to be processed. */
-  for (listidx = 0; listidx < msg->gapList.numbits; listidx++)
-    if (!nn_bitset_isset (msg->gapList.numbits, msg->bits, listidx))
+  for (listidx = 0; listidx < msg->gapList.numbits; listidx++) {
+    nn[0]++;
+    if (!nn_bitset_isset (msg->gapList.numbits, msg->bits, listidx)) {
+      nn[1]++;
       break;
+    }
+  }
   last_included_rel = (int32_t) listidx - 1;
 
   if (!rst->forme)
   {
+    nn[2]++;
     RSTTRACE (""PGUIDFMT" -> "PGUIDFMT" not-for-me)", PGUID (src), PGUID (dst));
     return 1;
   }
 
   if ((pwr = entidx_lookup_proxy_writer_guid (rst->gv->entity_index, &src)) == NULL)
   {
+    nn[3]++;
     RSTTRACE (""PGUIDFMT"? -> "PGUIDFMT")", PGUID (src), PGUID (dst));
+    //print_nn("gp", 2, nn, 50, -1);
     return 1;
   }
 
-  if ((lease = ddsrt_atomic_ldvoidp (&pwr->c.proxypp->minl_auto)) != NULL)
+  if ((lease = ddsrt_atomic_ldvoidp (&pwr->c.proxypp->minl_auto)) != NULL) {
+    nn[4]++;
     lease_renew (lease, tnow);
+  }
   ddsrt_mutex_lock (&pwr->e.lock);
   if ((wn = ddsrt_avl_lookup (&pwr_readers_treedef, &pwr->readers, &dst)) == NULL)
   {
+    nn[5]++;
     RSTTRACE (PGUIDFMT" -> "PGUIDFMT" not a connection)", PGUID (src), PGUID (dst));
     ddsrt_mutex_unlock (&pwr->e.lock);
+    //print_nn("gp", 3, nn, 50, -1);
     return 1;
   }
   RSTTRACE (PGUIDFMT" -> "PGUIDFMT, PGUID (src), PGUID (dst));
 
   if (!pwr->have_seen_heartbeat && pwr->n_reliable_readers > 0)
   {
+    nn[6]++;
     RSTTRACE (": no heartbeat seen yet");
     ddsrt_mutex_unlock (&pwr->e.lock);
+    //print_nn("gp", 4, nn, 50, -1);
     return 1;
   }
 
@@ -1674,36 +1736,50 @@ static int handle_Gap (struct receiver_state *rst, nn_etime_t tnow, struct nn_rm
      it is out-of-sync, &c.), while delivering samples that become
      available because preceding ones are now known to be missing. */
   {
+    nn[7]++;
     int refc_adjust = 0;
     struct nn_rdata *gap;
     gap = nn_rdata_newgap (rmsg);
     if (gapstart < listbase + listidx)
     {
+      nn[8]++;
       /* sanity check on sequence numbers because a GAP message is not invalid even
          if start >= listbase (DDSI 2.1 sect 8.3.7.4.3), but only handle non-empty
          intervals */
-      (void) handle_one_gap (pwr, wn, gapstart, listbase + listidx, gap, &refc_adjust);
+      (void) handle_one_gap (1, rst, pwr, wn, gapstart, listbase + listidx, gap, &refc_adjust);
     }
     while (listidx < msg->gapList.numbits)
     {
+      nn[9]++;
       if (!nn_bitset_isset (msg->gapList.numbits, msg->bits, listidx))
+      {
+        nn[10]++;
         listidx++;
+      }
       else
       {
+        nn[11]++;
         uint32_t j;
-        for (j = listidx + 1; j < msg->gapList.numbits; j++)
-          if (!nn_bitset_isset (msg->gapList.numbits, msg->bits, j))
+        for (j = listidx + 1; j < msg->gapList.numbits; j++) {
+          nn[12]++;
+          if (!nn_bitset_isset (msg->gapList.numbits, msg->bits, j)) {
+            nn[13]++;
             break;
+          }
+        }
+        nn[14]++;
         /* spec says gapList (2) identifies an additional list of sequence numbers that
            are invalid (8.3.7.4.2), so by that rule an insane start would simply mean the
            initial interval is to be ignored and the bitmap to be applied */
-        (void) handle_one_gap (pwr, wn, listbase + listidx, listbase + j, gap, &refc_adjust);
+        (void) handle_one_gap (2, rst, pwr, wn, listbase + listidx, listbase + j, gap, &refc_adjust);
         assert(j >= 1);
         last_included_rel = (int32_t) j - 1;
         listidx = j;
       }
+      nn[15]++;
     }
     nn_fragchain_adjust_refcount (gap, refc_adjust);
+    nn[16]++;
   }
 
   /* If the last sequence number explicitly included in the set is
@@ -1714,12 +1790,15 @@ static int handle_Gap (struct receiver_state *rst, nn_etime_t tnow, struct nn_rm
      bitmap).  */
   if (listbase + last_included_rel > pwr->last_seq)
   {
+    nn[17]++;
     pwr->last_seq = listbase + last_included_rel;
     pwr->last_fragnum = ~0u;
     pwr->last_fragnum_reset = 0;
   }
+  nn[18]++;
   RSTTRACE (")");
   ddsrt_mutex_unlock (&pwr->e.lock);
+  //print_nn("gp", 5, nn, 50, -1);
   return 1;
 }
 
@@ -2155,7 +2234,7 @@ static void handle_regular (struct receiver_state *rst, nn_etime_t tnow, struct 
          will force delivery of this sample, and not cause the gap to
          be added to the reorder admin. */
       int gap_refc_adjust = 0;
-      rres = nn_reorder_gap (&sc, pwr->reorder, rdata, 1, sampleinfo->seq, &gap_refc_adjust);
+      rres = nn_reorder_gap (rst, &sc, pwr->reorder, rdata, 1, sampleinfo->seq, &gap_refc_adjust);
       assert (rres > 0);
       assert (gap_refc_adjust == 0);
     }
@@ -2305,7 +2384,7 @@ static void drop_oversize (struct receiver_state *rst, struct nn_rmsg *rmsg, con
 
     ddsrt_mutex_lock (&pwr->e.lock);
     wn = ddsrt_avl_lookup (&pwr_readers_treedef, &pwr->readers, &dst);
-    gap_was_valuable = handle_one_gap (pwr, wn, sampleinfo->seq, sampleinfo->seq+1, gap, &refc_adjust);
+    gap_was_valuable = handle_one_gap (3, rst, pwr, wn, sampleinfo->seq, sampleinfo->seq+1, gap, &refc_adjust);
     nn_fragchain_adjust_refcount (gap, refc_adjust);
     ddsrt_mutex_unlock (&pwr->e.lock);
 
