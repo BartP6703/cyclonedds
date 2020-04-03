@@ -58,6 +58,8 @@
 #include "dds/ddsi/sysdeps.h"
 #include "dds__whc.h"
 
+#define FIX_FOR_275
+
 /*
 Notes:
 
@@ -93,7 +95,10 @@ static void maybe_set_reader_in_sync (struct proxy_writer *pwr, struct pwr_rd_ma
       }
       break;
     case PRMSS_OUT_OF_SYNC:
+#ifdef FIX_FOR_275
+#else
       assert (nn_reorder_next_seq (wn->u.not_in_sync.reorder) <= nn_reorder_next_seq (pwr->reorder));
+#endif
       if (pwr->have_seen_heartbeat && nn_reorder_next_seq (wn->u.not_in_sync.reorder) == nn_reorder_next_seq (pwr->reorder))
       {
         ETRACE (pwr, " msr_in_sync("PGUIDFMT" out-of-sync to tlcatchup)", PGUID (wn->rd_guid));
@@ -1555,12 +1560,41 @@ static int handle_one_gap (struct receiver_state *rst, struct proxy_writer *pwr,
 {
   struct nn_rsample_chain sc;
   nn_reorder_result_t res;
-  int gap_was_valuable = 0; // used for line in trace
+  int gap_was_valuable = 0;
   ASSERT_MUTEX_HELD (&pwr->e.lock);
 
   /* Clean up the defrag admin: no fragments of a missing sample will
      be arriving in the future */
   nn_defrag_notegap (pwr->defrag, a, b);
+
+#ifdef FIX_FOR_275 /* enable after conversation with erik b. */
+
+  if (wn != NULL && wn->in_sync != PRMSS_OUT_OF_SYNC)
+  {
+    switch (wn->in_sync)
+    {
+      case PRMSS_SYNC:
+        /* Primary reorder: the gap message may cause some samples to become
+           deliverable. */
+        if ((res = nn_reorder_gap (rst, &sc, pwr->reorder, gap, a, b, refc_adjust)) > 0)
+        {
+          if (pwr->deliver_synchronously) {
+            deliver_user_data_synchronously (&sc, NULL);
+          } else {
+            nn_dqueue_enqueue (pwr->dqueue, &sc, res);
+          }
+        }
+        break;
+      case PRMSS_TLCATCHUP:
+        RSTTRACE (" <TLCATCHUP:1>\n");
+        break;
+      case PRMSS_OUT_OF_SYNC:
+        assert(0);
+        break;
+    }
+  }
+
+#else
 
   /* Primary reorder: the gap message may cause some samples to become
      deliverable. */
@@ -1572,6 +1606,8 @@ static int handle_one_gap (struct receiver_state *rst, struct proxy_writer *pwr,
       nn_dqueue_enqueue (pwr->dqueue, &sc, res);
     }
   }
+
+#endif
 
   /* If the result was REJECT or TOO_OLD, then this gap didn't add
      anything useful, or there was insufficient memory to store it.
@@ -1593,6 +1629,7 @@ static int handle_one_gap (struct receiver_state *rst, struct proxy_writer *pwr,
         assert(0);
         break;
       case PRMSS_TLCATCHUP:
+        RSTTRACE (" <TLCATCHUP:2>\n");
         break;
       case PRMSS_OUT_OF_SYNC:
         if ((res = nn_reorder_gap (rst, &sc, wn->u.not_in_sync.reorder, gap, a, b, refc_adjust)) > 0)
