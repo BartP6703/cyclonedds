@@ -61,25 +61,18 @@ static dds_return_t get_matched_count_writers (uint32_t *count, dds_entity_t wri
   return 0;
 }
 
-static int n_zz = 0;
-static int zz[4] = {0};
-
 static dds_return_t get_matched_count_readers (uint32_t *count, dds_entity_t readers[N_READERS])
 {
   *count = 0;
-  zz[0]++; n_zz++;
   for (int i = 0; i < N_READERS; i++)
   {
-    zz[1]++; n_zz++;
     dds_subscription_matched_status_t st;
     dds_return_t rc = dds_get_subscription_matched_status (readers[i], &st);
     if (rc != 0) {
-      zz[2]++; n_zz++;
       return rc;
     }
     *count += st.current_count;
   }
-  zz[3]++; n_zz++;
   return 0;
 }
 
@@ -93,29 +86,22 @@ MPT_ProcessEntry (createwriter_publisher,
   dds_return_t rc;
   dds_qos_t *qos;
   int id = (int) ddsrt_getpid ();
-  int n_xx = 0;
-  int xx[50] = {0};
 
   printf ("=== [Publisher(%d)] Start(%d) ...\n", id, domainid);
-  xx[0]++; n_xx++;
 
   qos = dds_create_qos ();
   dds_qset_durability (qos, DDS_DURABILITY_VOLATILE);
   dds_qset_history (qos, DDS_HISTORY_KEEP_LAST, DEPTH);
   dds_qset_reliability (qos, DDS_RELIABILITY_RELIABLE, DDS_SECS (10));
-  xx[1]++; n_xx++;
 
   participant = dds_create_participant (domainid, NULL, NULL);
   MPT_ASSERT_FATAL_GT (participant, 0, "Could not create participant: %s\n", dds_strretcode(participant));
-  xx[2]++; n_xx++;
 
   topic = dds_create_topic (participant, &DiscStress_CreateWriter_Msg_desc, topic_name, qos, NULL);
   MPT_ASSERT_FATAL_GT (topic, 0, "Could not create topic: %s\n", dds_strretcode(topic));
-  xx[3]++; n_xx++;
 
   for (int i = 0; i < N_WRITERS; i++)
   {
-    xx[3]++; n_xx++;
     writers[i] = dds_create_writer (participant, topic, qos, NULL);
     MPT_ASSERT_FATAL_GT (writers[i], 0, "Could not create writer: %s\n", dds_strretcode (writers[i]));
   }
@@ -135,19 +121,15 @@ MPT_ProcessEntry (createwriter_publisher,
   bool matched = false;
   while (round < N_ROUNDS)
   {
-    xx[4]++; n_xx++;
     if (matched) {
-      xx[5]++; n_xx++;
       round++;
     } else {
-      xx[6]++; n_xx++;
       uint32_t mc;
       rc = get_matched_count_writers (&mc, writers);
       MPT_ASSERT_FATAL_EQ (rc, 0, "Could not get publication matched status: %s\n", dds_strretcode (rc));
       matched = (mc == N_READERS * N_WRITERS);
       if (matched)
       {
-        xx[7]++; n_xx++;
         printf ("=== [Publisher(%d)] All readers found; continuing at [%"PRIu32",%"PRIu32"] for %d rounds\n",
                 id, wrseq * N_WRITERS + 1, (wrseq + 1) * N_WRITERS, N_ROUNDS);
         fflush (stdout);
@@ -156,10 +138,8 @@ MPT_ProcessEntry (createwriter_publisher,
 
     for (uint32_t i = 0; i < N_WRITERS; i++)
     {
-      xx[8]++; n_xx++;
       for (uint32_t j = 0; j < DEPTH; j++)
       {
-        xx[9]++; n_xx++;
         /* Note: +1 makes wrseq equal to the writer entity id */
         DiscStress_CreateWriter_Msg m = {
           .round = round, .wrseq = wrseq * N_WRITERS + i + 1, .wridx = i, .histidx = j, .seq = seq
@@ -177,14 +157,12 @@ MPT_ProcessEntry (createwriter_publisher,
        Round 0 is the first round where all readers have been matched with writer 0 */
     for (int i = 0; i < N_WRITERS; i++)
     {
-      xx[10]++; n_xx++;
       rc = dds_delete (writers[i]);
       MPT_ASSERT_FATAL_EQ (rc, 0, "Could not delete writer: %s\n", dds_strretcode (rc));
       writers[i] = dds_create_writer (participant, topic, qos, NULL);
       MPT_ASSERT_FATAL_GT (writers[i], 0, "Could not create writer: %s\n", dds_strretcode (writers[i]));
     }
 
-    xx[11]++; n_xx++;
     wrseq++;
   }
 
@@ -192,11 +170,6 @@ MPT_ProcessEntry (createwriter_publisher,
   MPT_ASSERT_EQ (rc, DDS_RETCODE_OK, "Teardown failed\n");
   dds_delete_qos (qos);
   printf ("=== [Publisher(%d)] Done\n", id);
-  printf("cnt_xx[]: %5d {", n_xx);
-  for (int i = 0; i < 50; i++) {
-    if (xx[i] > 0) printf(" %d:%d", i, xx[i]);
-  }
-  printf(" }\n");
 }
 
 struct wrinfo {
@@ -250,32 +223,25 @@ MPT_ProcessEntry(createwriter_subscriber,
   dds_return_t rc;
   dds_qos_t *qos;
   int id = (int) ddsrt_getpid ();
-  int n_yy = 0;
-  int yy[50] = {0};
 
   printf ("--- [Subscriber(%d)] Start(%d) ...\n", id, domainid);
-  //yy[0]++; n_yy++;
 
   qos = dds_create_qos ();
   dds_qset_durability (qos, DDS_DURABILITY_VOLATILE);
   dds_qset_history (qos, DDS_HISTORY_KEEP_LAST, DEPTH);
   dds_qset_reliability (qos, DDS_RELIABILITY_RELIABLE, DDS_SECS (10));
-  //yy[1]++; n_yy++;
 
   participant = dds_create_participant (domainid, NULL, NULL);
   MPT_ASSERT_FATAL_GT (participant, 0, "Could not create participant: %s\n", dds_strretcode(participant));
-  yy[2]++;
 
   topic = dds_create_topic (participant, &DiscStress_CreateWriter_Msg_desc, topic_name, qos, NULL);
   MPT_ASSERT_FATAL_GT (topic, 0, "Could not create topic: %s\n", dds_strretcode(topic));
-  //yy[2]++; n_yy++;
 
   /* Keep all history on the reader: then we should see DEPTH samples from each writer, except,
      perhaps, the very first time */
   dds_qset_history (qos, DDS_HISTORY_KEEP_ALL, 0);
   for (int i = 0; i < N_READERS; i++)
   {
-    //yy[3]++; n_yy++;
     readers[i] = dds_create_reader (participant, topic, qos, NULL);
     MPT_ASSERT_FATAL_GT (readers[i], 0, "Could not create reader: %s\n", dds_strretcode (readers[i]));
   }
@@ -288,7 +254,6 @@ MPT_ProcessEntry(createwriter_subscriber,
   MPT_ASSERT_FATAL_GT (ws, 0, "Could not create waitset: %s\n", dds_strretcode (ws));
   for (int i = 0; i < N_READERS; i++)
   {
-    //yy[4]++; n_yy++;
     rc = dds_set_status_mask (readers[i], DDS_SUBSCRIPTION_MATCHED_STATUS);
     MPT_ASSERT_FATAL_EQ (rc, 0, "Could not set subscription matched mask: %s\n", dds_strretcode (rc));
     rc = dds_waitset_attach (ws, readers[i], i);
@@ -298,7 +263,6 @@ MPT_ProcessEntry(createwriter_subscriber,
   {
     uint32_t mc;
     do {
-      yy[5]++; n_yy++;
       rc = get_matched_count_readers (&mc, readers);
       MPT_ASSERT_FATAL_EQ (rc, 0, "Could not get subscription matched status: %s\n", dds_strretcode (rc));
     } while (mc < N_READERS * N_WRITERS && (rc = dds_waitset_wait (ws, NULL, 0, DDS_INFINITY)) >= 0);
@@ -309,7 +273,6 @@ MPT_ProcessEntry(createwriter_subscriber,
      this is more fun */
   for (int i = 0; i < N_READERS; i++)
   {
-    //yy[6]++; n_yy++;
     uint32_t mask;
     rc = dds_get_status_mask (readers[i], &mask);
     MPT_ASSERT_FATAL_EQ (rc, 0, "Could not get status mask: %s\n", dds_strretcode (rc));
@@ -329,7 +292,6 @@ MPT_ProcessEntry(createwriter_subscriber,
   int logidx[N_READERS] = { 0 };
   while (matched)
   {
-    yy[7]++; n_yy++;
     dds_attach_t xs[N_READERS];
 
     {
@@ -356,11 +318,9 @@ MPT_ProcessEntry(createwriter_subscriber,
     MPT_ASSERT_FATAL_GEQ (nxs, 0, "Waiting for data failed: %s\n", dds_strretcode (nxs));
     if (nxs == 0 && matched)
     {
-      yy[8]++; n_yy++;
       printf ("--- [Subscriber(%d)] Unexpected timeout\n", id);
       for (int i = 0; i < N_READERS; i++)
       {
-        yy[9]++; n_yy++;
         dds_subscription_matched_status_t st;
         rc = dds_get_subscription_matched_status (readers[i], &st);
         MPT_ASSERT_FATAL_EQ (rc, 0, "Could not get subscription matched status: %s\n", dds_strretcode (rc));
@@ -373,13 +333,11 @@ MPT_ProcessEntry(createwriter_subscriber,
 #define READ_LEN 3
     for (int32_t i = 0; i < nxs; i++)
     {
-      yy[10]++; n_yy++;
       void *raw[READ_LEN] = { NULL };
       dds_sample_info_t si[READ_LEN];
       int32_t n;
       while ((n = dds_take (readers[xs[i]], raw, si, READ_LEN, READ_LEN)) > 0)
       {
-        yy[11]++; n_yy++;
         for (int32_t j = 0; j < n; j++)
         {
           DiscStress_CreateWriter_Msg const * const s = raw[j];
@@ -393,7 +351,6 @@ MPT_ProcessEntry(createwriter_subscriber,
 
               if ((wri = ddsrt_hh_lookup (wrinfo, &wri_key)) == NULL)
               {
-                //yy[12]++; n_yy++;
                 wri = malloc (sizeof (*wri));
                 *wri = wri_key;
                 rc = ddsrt_hh_add (wrinfo, wri);
@@ -401,7 +358,7 @@ MPT_ProcessEntry(createwriter_subscriber,
               }
 
               snprintf (logbuf[xs[i]][logidx[xs[i]]], sizeof (logbuf[xs[i]][logidx[xs[i]]]),
-                        "%"PRId32": %"PRId32".%"PRIu32" %"PRIu32".%"PRIu32" iid %"PRIx64" new %"PRIx64" st %c%c seq %"PRIu32" seen %"PRIu32"\n",
+                        "%"PRId32": %"PRId32",%"PRIu32",%"PRIu32",%"PRIu32" iid %"PRIx64" new %"PRIx64" st %c%c seq %"PRIu32" seen %"PRIu32"\n",
                         (uint32_t) xs[i], s->round, s->wrseq, s->wridx, s->histidx, wri->wr_iid, si[j].publication_handle,
                         (si[j].instance_state == DDS_IST_ALIVE) ? 'A' : (si[j].instance_state == DDS_IST_NOT_ALIVE_DISPOSED) ? 'D' : 'U',
                         si[j].valid_data ? 'v' : 'i', s->seq, wri->seen);
@@ -417,15 +374,8 @@ MPT_ProcessEntry(createwriter_subscriber,
               XASSERT (wri->seen < (1u << s->histidx), "Out of order sample (2)\n");
               wri->wr_iid = si[j].publication_handle;
               wri->seen |= 1u << s->histidx;
-              yy[13]++; n_yy++;
-            } else {
-              yy[14]++; n_yy++;
             }
-            yy[15]++; n_yy++; // [13] + [14] = [15]
-          } else {
-            yy[16]++; n_yy++;
           }
-          yy[17]++; n_yy++; // [15] + [16] = [17]
         }
         rc = dds_return_loan (readers[xs[i]], raw, n);
         MPT_ASSERT_FATAL_EQ (rc, 0, "Could not return loan: %s\n", dds_strretcode (rc));
@@ -434,18 +384,15 @@ MPT_ProcessEntry(createwriter_subscriber,
            writers, as that, too should occasionally push the delivery out of the fast path */
         if (xreader)
         {
-          yy[18]++; n_yy++;
           rc = dds_delete (xreader);
           MPT_ASSERT_FATAL_EQ (rc, 0, "Error on deleting extra reader: %s\n", dds_strretcode (rc));
           xreader = 0;
         }
         else
         {
-          yy[19]++; n_yy++;
           xreader = dds_create_reader (participant, topic, qos, NULL);
           MPT_ASSERT_FATAL_GT (xreader, 0, "Could not create extra reader: %s\n", dds_strretcode (xreader));
         }
-        yy[20]++; n_yy++; // [18] + [19] = [20]
       }
       MPT_ASSERT_FATAL_EQ (rc, 0, "Error on reading: %s\n", dds_strretcode (rc));
     }
@@ -459,7 +406,6 @@ MPT_ProcessEntry(createwriter_subscriber,
   uint32_t nwri = 0;
   for (struct wrinfo *wri = ddsrt_hh_iter_first (wrinfo, &it); wri; wri = ddsrt_hh_iter_next (&it))
   {
-    //yy[21]++; n_yy++;
     nwri++;
     if (wri->seen != (1u << DEPTH) - 1)
     {
@@ -471,14 +417,4 @@ MPT_ProcessEntry(createwriter_subscriber,
   ddsrt_hh_free (wrinfo);
   MPT_ASSERT (nwri >= (N_ROUNDS / 3) * N_READERS * N_WRITERS, "Less data received than expected\n");
   printf ("--- [Subscriber(%d)] Done after %"PRIu32" sets\n", id, nwri / (N_READERS * N_WRITERS));
-  printf("cnt_yy[]: %5d {", n_yy);
-  for (int i = 0; i < 50; i++) {
-    if (yy[i] > 0) printf(" %d:%d", i, yy[i]);
-  }
-  printf(" }\n");
-  //printf("cnt_zz[]: %5d {", n_zz);
-  //for (int i = 0; i < 4; i++) {
-  //  if (zz[i] > 0) printf(" %d:%d", i, zz[i]);
-  //}
-  //printf(" }\n");
 }
