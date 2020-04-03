@@ -91,6 +91,7 @@ extern "C" {
 #define TST_ASSERT_FATAL_STR_EMPTY(value, ...)         TST_ASSERT_FATAL((TST_STRLEN((value), 1) == 0), __VA_ARGS__)
 #define TST_ASSERT_FATAL_STR_NOT_EMPTY(value, ...)     TST_ASSERT_FATAL((TST_STRLEN((value), 0)  > 0), __VA_ARGS__)
 
+void createwriter_init_no_rd_md (void);
 void createwriter_init_md(void);
 void createwriter_init_sd(void);
 void createwriter_fini(void);
