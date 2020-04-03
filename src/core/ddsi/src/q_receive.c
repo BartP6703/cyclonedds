@@ -1564,12 +1564,8 @@ static int handle_one_gap (struct receiver_state *rst, struct proxy_writer *pwr,
 
   /* Primary reorder: the gap message may cause some samples to become
      deliverable. */
-  int mm = 0;
-  RSTTRACE("2:{a:%"PRId64",b:%"PRId64"}", a, b);
   if ((res = nn_reorder_gap (rst, &sc, pwr->reorder, gap, a, b, refc_adjust)) > 0)
   {
-    nn[1]++; //<error
-    mm++;
     if (pwr->deliver_synchronously) {
       deliver_user_data_synchronously (&sc, NULL);
     } else {
