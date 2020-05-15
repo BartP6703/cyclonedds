@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <stddef.h>
 
+#include "dds/ddsrt/process.h"
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/log.h"
 #include "dds/ddsrt/md5.h"
@@ -548,7 +549,7 @@ static void force_heartbeat_to_peer (struct writer *wr, const struct whc_state *
   }
 
   /* Send a Heartbeat just to this peer */
-  add_Heartbeat (m, wr, whcst, hbansreq, 0, prd->e.guid.entityid, 0);
+  add_Heartbeat (__func__, __LINE__, m, wr, whcst, hbansreq, 0, prd->e.guid.entityid, 0);
   ETRACE (wr, "force_heartbeat_to_peer: "PGUIDFMT" -> "PGUIDFMT" - queue for transmit\n",
           PGUID (wr->e.guid), PGUID (prd->e.guid));
   qxev_msg (wr->evq, m);
@@ -612,7 +613,7 @@ static int accept_ack_or_hb_w_timeout (nn_count_t new_count, nn_count_t *exp_cou
   return 1;
 }
 
-static int handle_AckNack (struct receiver_state *rst, nn_etime_t tnow, const AckNack_t *msg, nn_wctime_t timestamp)
+static int handle_AckNack (const char *caller, const int line, struct receiver_state *rst, nn_etime_t tnow, const AckNack_t *msg, nn_wctime_t timestamp)
 {
   struct proxy_reader *prd;
   struct wr_prd_match *rn;
@@ -636,12 +637,19 @@ static int handle_AckNack (struct receiver_state *rst, nn_etime_t tnow, const Ac
   struct whc_node *deferred_free_list = NULL;
   struct whc_state whcst;
   int hb_sent_in_response = 0;
+  (void)caller;
+  (void)line;
   memset (gapbits, 0, sizeof (gapbits));
   countp = (nn_count_t *) ((char *) msg + offsetof (AckNack_t, bits) + NN_SEQUENCE_NUMBER_SET_BITS_SIZE (msg->readerSNState.numbits));
   src.prefix = rst->src_guid_prefix;
   src.entityid = msg->readerId;
   dst.prefix = rst->dst_guid_prefix;
   dst.entityid = msg->writerId;
+  //printf("[%"PRIdPID"] %s(%s@%d): smhdr:{id:%02x,flags:%02x,octets:%d},base:%d,numbits:%d\n",
+  //       ddsrt_getpid(),
+  //       __func__, caller, line,
+  //       (int)msg->smhdr.submessageId, (int)msg->smhdr.flags, (int)msg->smhdr.octetsToNextHeader,
+  //       (int)fromSN(msg->readerSNState.bitmap_base), (int)msg->readerSNState.numbits);
   RSTTRACE ("ACKNACK(%s#%"PRId32":%"PRId64"/%"PRIu32":", msg->smhdr.flags & ACKNACK_FLAG_FINAL ? "F" : "",
             *countp, fromSN (msg->readerSNState.bitmap_base), msg->readerSNState.numbits);
   for (uint32_t i = 0; i < msg->readerSNState.numbits; i++)
@@ -841,6 +849,7 @@ static int handle_AckNack (struct receiver_state *rst, nn_etime_t tnow, const Ac
   seq_xmit = writer_read_seq_xmit (wr);
   const bool gap_for_already_acked = vendor_is_eclipse (rst->vendor) && prd->c.xqos->durability.kind == DDS_DURABILITY_VOLATILE && seqbase <= rn->seq;
   const seqno_t min_seq_to_rexmit = gap_for_already_acked ? rn->seq + 1 : 0;
+  int printed = 0;
   for (uint32_t i = 0; i < numbits && seqbase + i <= seq_xmit && enqueued; i++)
   {
     /* Accelerated schedule may run ahead of sequence number set
@@ -863,6 +872,7 @@ static int handle_AckNack (struct receiver_state *rst, nn_etime_t tnow, const Ac
           if (tstamp.v > sample.last_rexmit_ts.v + rst->gv->config.retransmit_merging_period)
           {
             RSTTRACE (" RX%"PRId64, seqbase + i);
+            printf   (" RX%"PRId64, seqbase + i); printed = 1;
             enqueued = (enqueue_sample_wrlock_held (wr, seq, sample.plist, sample.serdata, NULL, 0) >= 0);
             if (enqueued)
             {
@@ -874,12 +884,14 @@ static int handle_AckNack (struct receiver_state *rst, nn_etime_t tnow, const Ac
           else
           {
             RSTTRACE (" RX%"PRId64" (merged)", seqbase + i);
+            printf   (" RX%"PRId64" (merged)", seqbase + i); printed = 1;
           }
         }
         else
         {
           /* no merging, send directed retransmit */
           RSTTRACE (" RX%"PRId64"", seqbase + i);
+          printf   (" RX%"PRId64"", seqbase + i); printed = 1;
           enqueued = (enqueue_sample_wrlock_held (wr, seq, sample.plist, sample.serdata, prd, 0) >= 0);
           if (enqueued)
           {
@@ -894,6 +906,7 @@ static int handle_AckNack (struct receiver_state *rst, nn_etime_t tnow, const Ac
       else if (gapstart == -1)
       {
         RSTTRACE (" M%"PRId64, seqbase + i);
+        printf   (" M%"PRId64, seqbase + i); printed = 1;
         gapstart = seqbase + i;
         gapend = gapstart + 1;
         msgs_lost++;
@@ -901,6 +914,7 @@ static int handle_AckNack (struct receiver_state *rst, nn_etime_t tnow, const Ac
       else if (seqbase + i == gapend)
       {
         RSTTRACE (" M%"PRId64, seqbase + i);
+        printf   (" M%"PRId64, seqbase + i); printed = 1;
         gapend = seqbase + i + 1;
         msgs_lost++;
       }
@@ -908,12 +922,15 @@ static int handle_AckNack (struct receiver_state *rst, nn_etime_t tnow, const Ac
       {
         uint32_t idx = (uint32_t) (seqbase + i - gapend);
         RSTTRACE (" M%"PRId64, seqbase + i);
+        printf   (" M%"PRId64, seqbase + i); printed = 1;
         gapnumbits = idx + 1;
         nn_bitset_set (gapnumbits, gapbits, idx);
         msgs_lost++;
       }
     }
   }
+  if (printed)
+    printf("\n");
   if (!enqueued)
     RSTTRACE (" rexmit-limit-hit");
   /* Generate a Gap message if some of the sequence is missing */
@@ -959,6 +976,7 @@ static int handle_AckNack (struct receiver_state *rst, nn_etime_t tnow, const Ac
   if (msgs_sent && max_seq_in_reply < seq_xmit)
   {
     RSTTRACE (" rexmit#%"PRIu32" maxseq:%"PRId64"<%"PRId64"<=%"PRId64"", msgs_sent, max_seq_in_reply, seq_xmit, wr->seq);
+    printf   (" rexmit#%"PRIu32" maxseq:%"PRId64"<%"PRId64"<=%"PRId64"", msgs_sent, max_seq_in_reply, seq_xmit, wr->seq);
     force_heartbeat_to_peer (wr, &whcst, prd, 1);
     hb_sent_in_response = 1;
 
@@ -1096,7 +1114,7 @@ static void handle_Heartbeat_helper (struct pwr_rd_match * const wn, struct hand
   }
 }
 
-static int handle_Heartbeat (struct receiver_state *rst, nn_etime_t tnow, struct nn_rmsg *rmsg, const Heartbeat_t *msg, nn_wctime_t timestamp)
+static int handle_Heartbeat (const char *caller, const int line, struct receiver_state *rst, nn_etime_t tnow, struct nn_rmsg *rmsg, const Heartbeat_t *msg, nn_wctime_t timestamp)
 {
   /* We now cheat: and process the heartbeat for _all_ readers,
      always, regardless of the destination address in the Heartbeat
@@ -1115,12 +1133,14 @@ static int handle_Heartbeat (struct receiver_state *rst, nn_etime_t tnow, struct
   struct proxy_writer *pwr;
   struct lease *lease;
   ddsi_guid_t src, dst;
+  (void)caller;
+  (void)line;
 
   src.prefix = rst->src_guid_prefix;
   src.entityid = msg->writerId;
   dst.prefix = rst->dst_guid_prefix;
   dst.entityid = msg->readerId;
-
+  //printf("[%"PRIdPID"] %s(%s@%d): smhdr:{id:%02x,flags:%02x,octets:%d},%d-%d,count:%d\n", ddsrt_getpid(), __func__, caller, line, (int)msg->smhdr.submessageId, (int)msg->smhdr.flags, (int)msg->smhdr.octetsToNextHeader, (int)firstseq, (int)lastseq, (int)msg->count);
   RSTTRACE ("HEARTBEAT(%s#%"PRId32":%"PRId64"..%"PRId64" ", msg->smhdr.flags & HEARTBEAT_FLAG_FINAL ? "F" : "", msg->count, firstseq, lastseq);
 
   if (!rst->forme)
@@ -1250,19 +1270,21 @@ static int handle_Heartbeat (struct receiver_state *rst, nn_etime_t tnow, struct
   return 1;
 }
 
-static int handle_HeartbeatFrag (struct receiver_state *rst, UNUSED_ARG(nn_etime_t tnow), const HeartbeatFrag_t *msg)
+static int handle_HeartbeatFrag (const char *caller, const int line, struct receiver_state *rst, UNUSED_ARG(nn_etime_t tnow), const HeartbeatFrag_t *msg)
 {
   const seqno_t seq = fromSN (msg->writerSN);
   const nn_fragment_number_t fragnum = msg->lastFragmentNum - 1; /* we do 0-based */
   ddsi_guid_t src, dst;
   struct proxy_writer *pwr;
   struct lease *lease;
+  (void)caller;
+  (void)line;
 
   src.prefix = rst->src_guid_prefix;
   src.entityid = msg->writerId;
   dst.prefix = rst->dst_guid_prefix;
   dst.entityid = msg->readerId;
-
+  printf("[%"PRIdPID"] %s(%s@%d): smhdr:{id:%02x,flags:%02x,octets:%d},writer:%d,fragnum:%d,count:%d\n", ddsrt_getpid(), __func__, caller, line, (int)msg->smhdr.submessageId, (int)msg->smhdr.flags, (int)msg->smhdr.octetsToNextHeader, (int)seq, (int)msg->lastFragmentNum, (int)msg->count);
   RSTTRACE ("HEARTBEATFRAG(#%"PRId32":%"PRId64"/[1,%u]", msg->count, seq, fragnum+1);
   if (!rst->forme)
   {
@@ -1439,7 +1461,9 @@ static int handle_NackFrag (struct receiver_state *rst, nn_etime_t tnow, const N
       if (nn_bitset_isset (msg->fragmentNumberState.numbits, msg->bits, i))
       {
         struct nn_xmsg *reply;
-        if (create_fragment_message (wr, seq, sample.plist, sample.serdata, base + i, prd, &reply, 0) < 0)
+        bool islast = is_last_fragment(wr, i, sample.serdata);
+        printf("%s() @%d: frag[%d] -> is_last_fragment:%s\n", __func__, __LINE__, i, islast ? "true" : "false");
+        if (create_fragment_message (__func__, __LINE__, wr, seq, sample.plist, sample.serdata, base + i, prd, &reply, 0, islast) < 0)
           enqueued = 0;
         else
           enqueued = qxev_msg_rexmit_wrlock_held (wr->evq, reply, 0);
@@ -2737,14 +2761,14 @@ static int handle_submsg_sequence
         state = "parse:acknack";
         if (!valid_AckNack (rst, &sm->acknack, submsg_size, byteswap))
           goto malformed;
-        handle_AckNack (rst, tnowE, &sm->acknack, ts_for_latmeas ? timestamp : NN_WCTIME_INVALID);
+        handle_AckNack (__func__, __LINE__, rst, tnowE, &sm->acknack, ts_for_latmeas ? timestamp : NN_WCTIME_INVALID);
         ts_for_latmeas = 0;
         break;
       case SMID_HEARTBEAT:
         state = "parse:heartbeat";
         if (!valid_Heartbeat (&sm->heartbeat, submsg_size, byteswap))
           goto malformed;
-        handle_Heartbeat (rst, tnowE, rmsg, &sm->heartbeat, ts_for_latmeas ? timestamp : NN_WCTIME_INVALID);
+        handle_Heartbeat (__func__, __LINE__, rst, tnowE, rmsg, &sm->heartbeat, ts_for_latmeas ? timestamp : NN_WCTIME_INVALID);
         ts_for_latmeas = 0;
         break;
       case SMID_GAP:
@@ -2807,7 +2831,7 @@ static int handle_submsg_sequence
         state = "parse:heartbeatfrag";
         if (!valid_HeartbeatFrag (&sm->heartbeatfrag, submsg_size, byteswap))
           goto malformed;
-        handle_HeartbeatFrag (rst, tnowE, &sm->heartbeatfrag);
+        handle_HeartbeatFrag (__func__, __LINE__, rst, tnowE, &sm->heartbeatfrag);
         ts_for_latmeas = 0;
         break;
       case SMID_DATA_FRAG:

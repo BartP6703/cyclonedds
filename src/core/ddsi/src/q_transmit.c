@@ -12,6 +12,7 @@
 #include <assert.h>
 #include <math.h>
 
+#include "dds/ddsrt/process.h"
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/sync.h"
 #include "dds/ddsrt/static_assert.h"
@@ -195,7 +196,7 @@ struct nn_xmsg *writer_hbcontrol_create_heartbeat (struct writer *wr, const stru
 #ifdef DDSI_INCLUDE_NETWORK_PARTITIONS
     nn_xmsg_setencoderid (msg, wr->partition_id);
 #endif
-    add_Heartbeat (msg, wr, whcst, hbansreq, 0, to_entityid (NN_ENTITYID_UNKNOWN), issync);
+    add_Heartbeat (__func__, __LINE__, msg, wr, whcst, hbansreq, 0, to_entityid (NN_ENTITYID_UNKNOWN), issync);
   }
   else
   {
@@ -216,7 +217,7 @@ struct nn_xmsg *writer_hbcontrol_create_heartbeat (struct writer *wr, const stru
 #ifdef DDSI_INCLUDE_NETWORK_PARTITIONS
     nn_xmsg_setencoderid (msg, wr->partition_id);
 #endif
-    add_Heartbeat (msg, wr, whcst, hbansreq, 0, prd_guid->entityid, issync);
+    add_Heartbeat (__func__, __LINE__, msg, wr, whcst, hbansreq, 0, prd_guid->entityid, issync);
   }
 
   writer_hbcontrol_note_hb (wr, tnow, hbansreq);
@@ -314,12 +315,14 @@ struct nn_xmsg *writer_hbcontrol_piggyback (struct writer *wr, const struct whc_
   return msg;
 }
 
-void add_Heartbeat (struct nn_xmsg *msg, struct writer *wr, const struct whc_state *whcst, int hbansreq, int hbliveliness, ddsi_entityid_t dst, int issync)
+void add_Heartbeat (const char *caller, const int line, struct nn_xmsg *msg, struct writer *wr, const struct whc_state *whcst, int hbansreq, int hbliveliness, ddsi_entityid_t dst, int issync)
 {
   struct q_globals const * const gv = wr->e.gv;
   struct nn_xmsg_marker sm_marker;
   Heartbeat_t * hb;
   seqno_t max = 0, min = 1;
+  (void)caller;
+  (void)line;
 
   ASSERT_MUTEX_HELD (&wr->e.lock);
 
@@ -382,10 +385,11 @@ void add_Heartbeat (struct nn_xmsg *msg, struct writer *wr, const struct whc_sta
 
   hb->count = ++wr->hbcount;
 
+  //printf("[%"PRIdPID"] %s(%s@%d): smhdr:{id:%02x,flags:%02x,octets:%d},%d-%d,count:%d\n", ddsrt_getpid(), __func__, caller, line, (int)hb->smhdr.submessageId, (int)hb->smhdr.flags, (int)hb->smhdr.octetsToNextHeader, (int)min, (int)max, (int)hb->count);
   nn_xmsg_submsg_setnext (msg, sm_marker);
 }
 
-static dds_return_t create_fragment_message_simple (struct writer *wr, seqno_t seq, struct ddsi_serdata *serdata, struct nn_xmsg **pmsg)
+static dds_return_t create_fragment_message_simple (const char *caller, const int line, struct writer *wr, seqno_t seq, struct ddsi_serdata *serdata, struct nn_xmsg **pmsg)
 {
 #define TEST_KEYHASH 0
   /* actual expected_inline_qos_size is typically 0, but always claiming 32 bytes won't make
@@ -395,6 +399,8 @@ static dds_return_t create_fragment_message_simple (struct writer *wr, seqno_t s
   struct nn_xmsg_marker sm_marker;
   unsigned char contentflag = 0;
   Data_t *data;
+  (void)caller;
+  (void)line;
 
   switch (serdata->kind)
   {
@@ -436,6 +442,8 @@ static dds_return_t create_fragment_message_simple (struct writer *wr, seqno_t s
   data->x.writerSN = toSN (seq);
   data->x.octetsToInlineQos = (unsigned short) ((char*) (data+1) - ((char*) &data->x.octetsToInlineQos + 2));
 
+  printf("[%"PRIdPID"] %s(%s@%d): smhdr:{id:%02x,flags:%02x,octets:%d}\n", ddsrt_getpid(), __func__, caller, line, (int)data->x.smhdr.submessageId, (int)data->x.smhdr.flags, (int)data->x.smhdr.octetsToNextHeader);
+
   if (wr->reliable)
     nn_xmsg_setwriterseq (*pmsg, &wr->e.guid, seq);
 
@@ -460,7 +468,24 @@ static dds_return_t create_fragment_message_simple (struct writer *wr, seqno_t s
   return 0;
 }
 
-dds_return_t create_fragment_message (struct writer *wr, seqno_t seq, const struct nn_plist *plist, struct ddsi_serdata *serdata, unsigned fragnum, struct proxy_reader *prd, struct nn_xmsg **pmsg, int isnew)
+bool is_last_fragment(struct writer *wr, unsigned fragnum, struct ddsi_serdata *serdata)
+{
+  bool ret = false;
+  struct q_globals const *const gv = wr->e.gv;
+  const uint32_t size = ddsi_serdata_size(serdata);
+  if (gv->config.fragment_size < size)
+  {
+    uint32_t fragstart = fragnum * gv->config.fragment_size;
+    uint32_t fraglen = gv->config.fragment_size;
+    if (fragstart + fraglen > size)
+      fraglen = size - fragstart;
+    if (fragstart + fraglen == size)
+      ret = true;
+  }
+  return ret;
+}
+
+dds_return_t create_fragment_message (const char *caller, const int line, struct writer *wr, seqno_t seq, const struct nn_plist *plist, struct ddsi_serdata *serdata, unsigned fragnum, struct proxy_reader *prd, struct nn_xmsg **pmsg, int isnew, int islast)
 {
   /* We always fragment into FRAGMENT_SIZEd fragments, which are near
      the smallest allowed fragment size & can't be bothered (yet) to
@@ -485,6 +510,8 @@ dds_return_t create_fragment_message (struct writer *wr, seqno_t seq, const stru
   enum nn_xmsg_kind xmsg_kind = isnew ? NN_XMSG_KIND_DATA : NN_XMSG_KIND_DATA_REXMIT;
   const uint32_t size = ddsi_serdata_size (serdata);
   dds_return_t ret = 0;
+  (void)caller;
+  (void)line;
   (void)plist;
 
   ASSERT_MUTEX_HELD (&wr->e.lock);
@@ -581,14 +608,22 @@ dds_return_t create_fragment_message (struct writer *wr, seqno_t seq, const stru
       fraglen = (uint32_t)(size - fragstart);
     ddcmn->octetsToInlineQos = (unsigned short) ((char*) (frag+1) - ((char*) &ddcmn->octetsToInlineQos + 2));
 
-    if (wr->reliable && (!isnew || fragstart + fraglen == ddsi_serdata_size (serdata)))
     {
+      printf("%s() @%d: islast:%s, fragnum:%d,fragstart:%d,fraglen:%d,size:%d -> (!isnew:%s || %s (%s))", __func__, __LINE__,
+             islast == true ? "true" : "false", fragnum, fragstart, fraglen, size, !isnew ? "true" : "false", fragstart + fraglen == size ? "true" : "false", islast ? "true" : "false");
+    }
+
+    if (wr->reliable && (!isnew || islast/*(fragstart + fraglen == size)*/))
+    {
+// final part (laatste fragment wat naar buiten wordt gestuurd)
       /* only set for final fragment for new messages; for rexmits we
          want it set for all so we can do merging. FIXME: I guess the
          writer should track both seq_xmit and the fragment number
          ... */
       nn_xmsg_setwriterseq_fragid (*pmsg, &wr->e.guid, seq, fragnum + frag->fragmentsInSubmessage - 1);
+      printf(" seq:%d", (int)seq);
     }
+    printf("\n");
   }
 
   ddcmn->extraFlags = 0;
@@ -622,6 +657,8 @@ dds_return_t create_fragment_message (struct writer *wr, seqno_t seq, const stru
     }
   }
 
+  printf("[%"PRIdPID"] %s(%s@%d): smhdr:{id:%02x,flags:%02x,octets:%d}\n", ddsrt_getpid(), __func__, caller, line, (int)ddcmn->smhdr.submessageId, (int)ddcmn->smhdr.flags, (int)ddcmn->smhdr.octetsToNextHeader);
+
   nn_xmsg_serdata (*pmsg, serdata, fragstart, fraglen);
   nn_xmsg_submsg_setnext (*pmsg, sm_marker);
 #if 0
@@ -633,12 +670,14 @@ dds_return_t create_fragment_message (struct writer *wr, seqno_t seq, const stru
   return ret;
 }
 
-static void create_HeartbeatFrag (struct writer *wr, seqno_t seq, unsigned fragnum, struct proxy_reader *prd, struct nn_xmsg **pmsg)
+static void add_HeartbeatFrag (const char *caller, const int line, struct writer *wr, seqno_t seq, unsigned fragnum, struct proxy_reader *prd, struct nn_xmsg **pmsg)
 {
   struct q_globals const * const gv = wr->e.gv;
   struct nn_xmsg_marker sm_marker;
   HeartbeatFrag_t *hbf;
   ASSERT_MUTEX_HELD (&wr->e.lock);
+  (void)caller;
+  (void)line;
   if ((*pmsg = nn_xmsg_new (gv->xmsgpool, &wr->e.guid.prefix, sizeof (HeartbeatFrag_t), NN_XMSG_KIND_CONTROL)) == NULL)
     return; /* ignore out-of-memory: HeartbeatFrag is only advisory anyway */
 #ifdef DDSI_INCLUDE_NETWORK_PARTITIONS
@@ -667,6 +706,7 @@ static void create_HeartbeatFrag (struct writer *wr, seqno_t seq, unsigned fragn
 
   hbf->count = ++wr->hbfragcount;
 
+  printf("[%"PRIdPID"] %s(%s@%d): smhdr:{id:%02x,flags:%02x,octets:%d},writer:%d,fragnum:%d,count:%d\n", ddsrt_getpid(), __func__, caller, line, (int)hbf->smhdr.submessageId, (int)hbf->smhdr.flags, (int)hbf->smhdr.octetsToNextHeader, (int)seq, (int)hbf->lastFragmentNum, (int)hbf->count);
   nn_xmsg_submsg_setnext (*pmsg, sm_marker);
 }
 
@@ -690,7 +730,7 @@ dds_return_t write_hb_liveliness (struct q_globals * const gv, struct ddsi_guid 
   nn_xmsg_setencoderid (msg, wr->partition_id);
 #endif
   whc_get_state (wr->whc, &whcst);
-  add_Heartbeat (msg, wr, &whcst, 0, 1, to_entityid (NN_ENTITYID_UNKNOWN), 1);
+  add_Heartbeat (__func__, __LINE__, msg, wr, &whcst, 0, 1, to_entityid (NN_ENTITYID_UNKNOWN), 1);
   ddsrt_mutex_unlock (&wr->e.lock);
   nn_xpack_addmsg (xp, msg, 0);
   nn_xpack_send (xp, true);
@@ -743,11 +783,19 @@ static void transmit_sample_lgmsg_unlocked (struct nn_xpack *xp, struct writer *
        we haven't yet completed transmitting a fragmented message, add
        a HeartbeatFrag. */
     ddsrt_mutex_lock (&wr->e.lock);
-    ret = create_fragment_message (wr, seq, plist, serdata, i, prd, &fmsg, isnew);
+    bool islast = is_last_fragment(wr, i, serdata);
+    printf("%s() @%d: frag[%d] -> is_last_fragment:%s", __func__, __LINE__, i, islast ? "true" : "false");
+    if (i == nfrags - 1)
+    {
+      islast = true;
+      printf(" -> [true]");
+    }
+    printf("\n");
+    ret = create_fragment_message (__func__, __LINE__, wr, seq, plist, serdata, i, prd, &fmsg, isnew, islast);
     if (ret >= 0)
     {
       if (nfrags > 1 && i + 1 < nfrags)
-        create_HeartbeatFrag (wr, seq, i, prd, &hmsg);
+        add_HeartbeatFrag (__func__, __LINE__, wr, seq, i, prd, &hmsg);
     }
     ddsrt_mutex_unlock (&wr->e.lock);
 
@@ -783,6 +831,7 @@ static void transmit_sample_unlocks_wr (struct nn_xpack *xp, struct writer *wr, 
   /* on entry: &wr->e.lock held; on exit: lock no longer held */
   struct q_globals const * const gv = wr->e.gv;
   struct nn_xmsg *fmsg;
+  static int id = 0; id++;
   uint32_t sz;
   assert(xp);
   assert((wr->heartbeat_xevent != NULL) == (whcst != NULL));
@@ -793,10 +842,19 @@ static void transmit_sample_unlocks_wr (struct nn_xpack *xp, struct writer *wr, 
     uint32_t nfrags;
     ddsrt_mutex_unlock (&wr->e.lock);
     nfrags = (sz + gv->config.fragment_size - 1) / gv->config.fragment_size;
+#if 1
+    printf("%s(%d): sz:%"PRIu32", fragment_size:%"PRIu32", n_frags:%"PRIu32" => %"PRIu32, __func__, id, sz, gv->config.fragment_size, nfrags, nfrags * gv->config.fragment_size);
+    if (nfrags * gv->config.fragment_size > 102400)
+    {
+      nfrags = 102400 / gv->config.fragment_size;
+      printf(" ===> nfrags:%"PRIu32, nfrags);
+    }
+    printf("\n");
+#endif
     transmit_sample_lgmsg_unlocked (xp, wr, whcst, seq, plist, serdata, prd, isnew, nfrags);
     return;
   }
-  else if (create_fragment_message_simple (wr, seq, serdata, &fmsg) < 0)
+  else if (create_fragment_message_simple (__func__, __LINE__, wr, seq, serdata, &fmsg) < 0)
   {
     ddsrt_mutex_unlock (&wr->e.lock);
     return;
@@ -844,10 +902,12 @@ int enqueue_sample_wrlock_held (struct writer *wr, seqno_t seq, const struct nn_
        eventually we'll have to retry.  But if a packet went out and
        we haven't yet completed transmitting a fragmented message, add
        a HeartbeatFrag. */
-    if (create_fragment_message (wr, seq, plist, serdata, i, prd, &fmsg, isnew) >= 0)
+    bool islast = is_last_fragment(wr, i, serdata);
+    printf("%s() @%d: frag[%d] -> is_last_fragment:%s\n", __func__, __LINE__, i, islast ? "true" : "false");
+    if (create_fragment_message (__func__, __LINE__, wr, seq, plist, serdata, i, prd, &fmsg, isnew, islast) >= 0)
     {
       if (nfrags > 1 && i + 1 < nfrags)
-        create_HeartbeatFrag (wr, seq, i, prd, &hmsg);
+        add_HeartbeatFrag (__func__, __LINE__, wr, seq, i, prd, &hmsg);
     }
     if (isnew)
     {

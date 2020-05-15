@@ -12,6 +12,7 @@
 #include <math.h>
 #include <stdlib.h>
 
+#include "dds/ddsrt/process.h"
 #include "dds/ddsrt/atomics.h"
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/sync.h"
@@ -687,7 +688,7 @@ static seqno_t next_deliv_seq (const struct proxy_writer *pwr, const seqno_t nex
   return next_deliv_seq;
 }
 
-static void add_AckNack (struct nn_xmsg *msg, struct proxy_writer *pwr, struct pwr_rd_match *rwn, seqno_t *nack_seq)
+static void add_AckNack (const char *caller, const int line, struct nn_xmsg *msg, struct proxy_writer *pwr, struct pwr_rd_match *rwn, seqno_t *nack_seq)
 {
   /* If pwr->have_seen_heartbeat == 0, no heartbeat has been received
      by this proxy writer yet, so we'll be sending a pre-emptive
@@ -710,6 +711,8 @@ static void add_AckNack (struct nn_xmsg *msg, struct proxy_writer *pwr, struct p
   int nackfrag_numbits;
   seqno_t nackfrag_seq = 0;
   seqno_t bitmap_base;
+  (void)caller;
+  (void)line;
 
   ASSERT_MUTEX_HELD (pwr->e.lock);
 
@@ -798,6 +801,9 @@ static void add_AckNack (struct nn_xmsg *msg, struct proxy_writer *pwr, struct p
     /* Reset submessage size, now that we know the real size, and update
        the offset to the next submessage. */
     nn_xmsg_shrink (msg, sm_marker, ACKNACK_SIZE (an->readerSNState.numbits));
+    //printf("[%"PRIdPID"] %s(%s@%d): smhdr:{id:%02x,flags:%02x,octets:%d},base:%d,numbits:%d\n", ddsrt_getpid(), __func__, caller, line,
+    //       (int)an->smhdr.submessageId, (int)an->smhdr.flags, (int)an->smhdr.octetsToNextHeader,
+    //       (int)/*an->readerSNState.bitmap_*/base, (int)an->readerSNState.numbits);
     nn_xmsg_submsg_setnext (msg, sm_marker);
 
     ETRACE (pwr, "acknack "PGUIDFMT" -> "PGUIDFMT": #%"PRId32":%"PRId64"/%"PRIu32":",
@@ -857,8 +863,10 @@ static void handle_xevk_acknack (UNUSED_ARG (struct nn_xpack *xp), struct xevent
   struct pwr_rd_match *rwn;
   nn_locator_t loc;
 
+  printf("[%"PRIdPID"] %s(): ", ddsrt_getpid(), __func__);
   if ((pwr = entidx_lookup_proxy_writer_guid (gv->entity_index, &ev->u.acknack.pwr_guid)) == NULL)
   {
+    printf("[entidx_lookup_proxy_writer_guid]\n");
     return;
   }
 
@@ -866,6 +874,7 @@ static void handle_xevk_acknack (UNUSED_ARG (struct nn_xpack *xp), struct xevent
   if ((rwn = ddsrt_avl_lookup (&pwr_readers_treedef, &pwr->readers, &ev->u.acknack.rd_guid)) == NULL)
   {
     ddsrt_mutex_unlock (&pwr->e.lock);
+    printf("[ddsrt_avl_lookup]\n");
     return;
   }
 
@@ -885,7 +894,7 @@ static void handle_xevk_acknack (UNUSED_ARG (struct nn_xpack *xp), struct xevent
       nn_xmsg_add_timestamp (msg, rwn->hb_timestamp);
       rwn->hb_timestamp.v = 0;
     }
-    add_AckNack (msg, pwr, rwn, &nack_seq);
+    add_AckNack (__func__, __LINE__, msg, pwr, rwn, &nack_seq);
     if (nack_seq)
     {
       rwn->t_last_nack = tnow;
@@ -929,12 +938,14 @@ static void handle_xevk_acknack (UNUSED_ARG (struct nn_xpack *xp), struct xevent
      must be outside the lock */
   if (msg)
     nn_xpack_addmsg (xp, msg, 0);
+  printf("\n");
   return;
 
  outofmem:
   /* What to do if out of memory?  Crash or burn? */
   ddsrt_mutex_unlock (&pwr->e.lock);
   (void) resched_xevent_if_earlier (ev, add_duration_to_mtime (tnow, 100 * T_MILLISECOND));
+  printf("\n");
 }
 
 static bool resend_spdp_sample_by_guid_key (struct writer *wr, const ddsi_guid_t *guid, struct proxy_reader *prd)
