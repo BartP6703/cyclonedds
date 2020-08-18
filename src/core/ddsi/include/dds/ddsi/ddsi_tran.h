@@ -46,7 +46,7 @@ typedef struct ddsi_tran_base * ddsi_tran_base_t;
 typedef struct ddsi_tran_conn * ddsi_tran_conn_t;
 typedef struct ddsi_tran_listener * ddsi_tran_listener_t;
 typedef struct ddsi_tran_factory * ddsi_tran_factory_t;
-typedef struct ddsi_tran_qos * ddsi_tran_qos_t;
+typedef struct ddsi_tran_qos ddsi_tran_qos_t;
 
 /* Function pointer types */
 
@@ -60,17 +60,18 @@ typedef void (*ddsi_tran_free_fn_t) (ddsi_tran_factory_t);
 typedef void (*ddsi_tran_peer_locator_fn_t) (ddsi_tran_conn_t, nn_locator_t *);
 typedef void (*ddsi_tran_disable_multiplexing_fn_t) (ddsi_tran_conn_t);
 typedef ddsi_tran_conn_t (*ddsi_tran_accept_fn_t) (ddsi_tran_listener_t);
-typedef ddsi_tran_conn_t (*ddsi_tran_create_conn_fn_t) (ddsi_tran_factory_t fact, uint32_t, ddsi_tran_qos_t);
-typedef ddsi_tran_listener_t (*ddsi_tran_create_listener_fn_t) (ddsi_tran_factory_t fact, uint32_t port, ddsi_tran_qos_t);
+typedef dds_return_t (*ddsi_tran_create_conn_fn_t) (ddsi_tran_conn_t *conn, ddsi_tran_factory_t fact, uint32_t, const struct ddsi_tran_qos *);
+typedef dds_return_t (*ddsi_tran_create_listener_fn_t) (ddsi_tran_listener_t *listener, ddsi_tran_factory_t fact, uint32_t port, const struct ddsi_tran_qos *);
 typedef void (*ddsi_tran_release_conn_fn_t) (ddsi_tran_conn_t);
 typedef void (*ddsi_tran_close_conn_fn_t) (ddsi_tran_conn_t);
 typedef void (*ddsi_tran_unblock_listener_fn_t) (ddsi_tran_listener_t);
 typedef void (*ddsi_tran_release_listener_fn_t) (ddsi_tran_listener_t);
 typedef int (*ddsi_tran_join_mc_fn_t) (ddsi_tran_conn_t, const nn_locator_t *srcip, const nn_locator_t *mcip, const struct nn_interface *interf);
 typedef int (*ddsi_tran_leave_mc_fn_t) (ddsi_tran_conn_t, const nn_locator_t *srcip, const nn_locator_t *mcip, const struct nn_interface *interf);
-typedef int (*ddsi_is_mcaddr_fn_t) (ddsi_tran_factory_t tran, const nn_locator_t *loc);
-typedef int (*ddsi_is_ssm_mcaddr_fn_t) (ddsi_tran_factory_t tran, const nn_locator_t *loc);
-typedef int (*ddsi_is_valid_port_fn_t) (ddsi_tran_factory_t tran, uint32_t port);
+typedef int (*ddsi_is_mcaddr_fn_t) (const struct ddsi_tran_factory *tran, const nn_locator_t *loc);
+typedef int (*ddsi_is_ssm_mcaddr_fn_t) (const struct ddsi_tran_factory *tran, const nn_locator_t *loc);
+typedef int (*ddsi_is_valid_port_fn_t) (const struct ddsi_tran_factory *tran, uint32_t port);
+typedef uint32_t (*ddsi_receive_buffer_size_fn_t) (const struct ddsi_tran_factory *fact);
 
 enum ddsi_nearby_address_result {
   DNAR_DISTANT,
@@ -78,7 +79,7 @@ enum ddsi_nearby_address_result {
   DNAR_SAME
 };
 
-typedef enum ddsi_nearby_address_result (*ddsi_is_nearby_address_fn_t) (ddsi_tran_factory_t tran, const nn_locator_t *loc, const nn_locator_t *ownloc, size_t ninterf, const struct nn_interface *interf);
+typedef enum ddsi_nearby_address_result (*ddsi_is_nearby_address_fn_t) (const nn_locator_t *loc, const nn_locator_t *ownloc, size_t ninterf, const struct nn_interface *interf);
 
 enum ddsi_locator_from_string_result {
   AFSR_OK,      /* conversion succeeded */
@@ -87,14 +88,14 @@ enum ddsi_locator_from_string_result {
   AFSR_MISMATCH /* recognised format, but mismatch with expected (e.g., IPv4/IPv6) */
 };
 
-typedef enum ddsi_locator_from_string_result (*ddsi_locator_from_string_fn_t) (ddsi_tran_factory_t tran, nn_locator_t *loc, const char *str);
+typedef enum ddsi_locator_from_string_result (*ddsi_locator_from_string_fn_t) (const struct ddsi_tran_factory *tran, nn_locator_t *loc, const char *str);
 
-typedef char * (*ddsi_locator_to_string_fn_t) (ddsi_tran_factory_t tran, char *dst, size_t sizeof_dst, const nn_locator_t *loc, int with_port);
+typedef char * (*ddsi_locator_to_string_fn_t) (char *dst, size_t sizeof_dst, const nn_locator_t *loc, int with_port);
 
 typedef int (*ddsi_enumerate_interfaces_fn_t) (ddsi_tran_factory_t tran, enum transport_selector transport_selector, ddsrt_ifaddrs_t **interfs);
 
 /* Data types */
-struct q_globals;
+struct ddsi_domaingv;
 struct ddsi_tran_base
 {
   /* Data */
@@ -102,7 +103,7 @@ struct ddsi_tran_base
   uint32_t m_port;
   uint32_t m_trantype;
   bool m_multicast;
-  struct q_globals *gv;
+  struct ddsi_domaingv *gv;
 
   /* Functions */
 
@@ -174,6 +175,7 @@ struct ddsi_tran_factory
   ddsi_locator_to_string_fn_t m_locator_to_string_fn;
   ddsi_enumerate_interfaces_fn_t m_enumerate_interfaces_fn;
   ddsi_is_valid_port_fn_t m_is_valid_port_fn;
+  ddsi_receive_buffer_size_fn_t m_receive_buffer_size_fn;
 
   /* Data */
 
@@ -182,58 +184,65 @@ struct ddsi_tran_factory
   const char *m_default_spdp_address;
   bool m_connless;
   bool m_stream;
-  struct q_globals *gv;
+  struct ddsi_domaingv *gv;
 
   /* Relationships */
 
   ddsi_tran_factory_t m_factory;
 };
 
+enum ddsi_tran_qos_purpose {
+  DDSI_TRAN_QOS_XMIT,
+  DDSI_TRAN_QOS_RECV_UC,
+  DDSI_TRAN_QOS_RECV_MC
+};
+
 struct ddsi_tran_qos
 {
-  /* QoS Data */
-
-  bool m_multicast;
+  enum ddsi_tran_qos_purpose m_purpose;
   int m_diffserv;
 };
 
-void ddsi_tran_factories_fini (struct q_globals *gv);
-void ddsi_factory_add (struct q_globals *gv, ddsi_tran_factory_t factory);
-void ddsi_factory_free (ddsi_tran_factory_t factory);
-ddsi_tran_factory_t ddsi_factory_find (const struct q_globals *gv, const char * type);
-ddsi_tran_factory_t ddsi_factory_find_supported_kind (const struct q_globals *gv, int32_t kind);
+void ddsi_tran_factories_fini (struct ddsi_domaingv *gv);
+void ddsi_factory_add (struct ddsi_domaingv *gv, ddsi_tran_factory_t factory);
+DDS_EXPORT void ddsi_factory_free (ddsi_tran_factory_t factory);
+DDS_EXPORT ddsi_tran_factory_t ddsi_factory_find (const struct ddsi_domaingv *gv, const char * type);
+ddsi_tran_factory_t ddsi_factory_find_supported_kind (const struct ddsi_domaingv *gv, int32_t kind);
 void ddsi_factory_conn_init (const struct ddsi_tran_factory *factory, ddsi_tran_conn_t conn);
 
 inline bool ddsi_factory_supports (const struct ddsi_tran_factory *factory, int32_t kind) {
   return factory->m_supports_fn (factory, kind);
 }
-inline int ddsi_is_valid_port (ddsi_tran_factory_t factory, uint32_t port) {
+inline int ddsi_is_valid_port (const struct ddsi_tran_factory *factory, uint32_t port) {
   return factory->m_is_valid_port_fn (factory, port);
 }
-inline ddsi_tran_conn_t ddsi_factory_create_conn (ddsi_tran_factory_t factory, uint32_t port, ddsi_tran_qos_t qos) {
-  if (!ddsi_is_valid_port (factory, port))
-    return NULL;
-  return factory->m_create_conn_fn (factory, port, qos);
+inline uint32_t ddsi_receive_buffer_size (const struct ddsi_tran_factory *factory) {
+  return factory->m_receive_buffer_size_fn (factory);
 }
-inline ddsi_tran_listener_t ddsi_factory_create_listener (ddsi_tran_factory_t factory, uint32_t port, ddsi_tran_qos_t qos) {
+inline dds_return_t ddsi_factory_create_conn (ddsi_tran_conn_t *conn, ddsi_tran_factory_t factory, uint32_t port, const struct ddsi_tran_qos *qos) {
+  *conn = NULL;
   if (!ddsi_is_valid_port (factory, port))
-    return NULL;
-  return factory->m_create_listener_fn (factory, port, qos);
+    return DDS_RETCODE_BAD_PARAMETER;
+  return factory->m_create_conn_fn (conn, factory, port, qos);
+}
+inline dds_return_t ddsi_factory_create_listener (ddsi_tran_listener_t *listener, ddsi_tran_factory_t factory, uint32_t port, const struct ddsi_tran_qos *qos) {
+  *listener = NULL;
+  if (!ddsi_is_valid_port (factory, port))
+    return DDS_RETCODE_BAD_PARAMETER;
+  return factory->m_create_listener_fn (listener, factory, port, qos);
 }
 
 void ddsi_tran_free (ddsi_tran_base_t base);
-void ddsi_tran_free_qos (ddsi_tran_qos_t qos);
-ddsi_tran_qos_t ddsi_tran_create_qos (void);
 inline ddsrt_socket_t ddsi_tran_handle (ddsi_tran_base_t base) {
   return base->m_handle_fn (base);
 }
 inline ddsrt_socket_t ddsi_conn_handle (ddsi_tran_conn_t conn) {
   return conn->m_base.m_handle_fn (&conn->m_base);
 }
-inline uint32_t ddsi_conn_type (ddsi_tran_conn_t conn) {
+inline uint32_t ddsi_conn_type (const struct ddsi_tran_conn *conn) {
   return conn->m_base.m_trantype;
 }
-inline uint32_t ddsi_conn_port (ddsi_tran_conn_t conn) {
+inline uint32_t ddsi_conn_port (const struct ddsi_tran_conn *conn) {
   return conn->m_base.m_port;
 }
 inline int ddsi_conn_locator (ddsi_tran_conn_t conn, nn_locator_t * loc) {
@@ -253,11 +262,11 @@ int ddsi_conn_join_mc (ddsi_tran_conn_t conn, const nn_locator_t *srcip, const n
 int ddsi_conn_leave_mc (ddsi_tran_conn_t conn, const nn_locator_t *srcip, const nn_locator_t *mcip, const struct nn_interface *interf);
 void ddsi_conn_transfer_group_membership (ddsi_tran_conn_t conn, ddsi_tran_conn_t newconn);
 int ddsi_conn_rejoin_transferred_mcgroups (ddsi_tran_conn_t conn);
-int ddsi_is_mcaddr (const struct q_globals *gv, const nn_locator_t *loc);
-int ddsi_is_ssm_mcaddr (const struct q_globals *gv, const nn_locator_t *loc);
-enum ddsi_nearby_address_result ddsi_is_nearby_address (const struct q_globals *gv, const nn_locator_t *loc, const nn_locator_t *ownloc, size_t ninterf, const struct nn_interface *interf);
+int ddsi_is_mcaddr (const struct ddsi_domaingv *gv, const nn_locator_t *loc);
+int ddsi_is_ssm_mcaddr (const struct ddsi_domaingv *gv, const nn_locator_t *loc);
+enum ddsi_nearby_address_result ddsi_is_nearby_address (const nn_locator_t *loc, const nn_locator_t *ownloc, size_t ninterf, const struct nn_interface *interf);
 
-enum ddsi_locator_from_string_result ddsi_locator_from_string (const struct q_globals *gv, nn_locator_t *loc, const char *str, ddsi_tran_factory_t default_factory);
+DDS_EXPORT enum ddsi_locator_from_string_result ddsi_locator_from_string (const struct ddsi_domaingv *gv, nn_locator_t *loc, const char *str, ddsi_tran_factory_t default_factory);
 
 /*  8 for transport/
     1 for [
@@ -270,8 +279,8 @@ enum ddsi_locator_from_string_result ddsi_locator_from_string (const struct q_gl
 */
 #define DDSI_LOCSTRLEN 70
 
-char *ddsi_locator_to_string (const struct q_globals *gv, char *dst, size_t sizeof_dst, const nn_locator_t *loc);
-char *ddsi_locator_to_string_no_port (const struct q_globals *gv, char *dst, size_t sizeof_dst, const nn_locator_t *loc);
+char *ddsi_locator_to_string (char *dst, size_t sizeof_dst, const nn_locator_t *loc);
+char *ddsi_locator_to_string_no_port (char *dst, size_t sizeof_dst, const nn_locator_t *loc);
 
 int ddsi_enumerate_interfaces (ddsi_tran_factory_t factory, enum transport_selector transport_selector, ddsrt_ifaddrs_t **interfs);
 

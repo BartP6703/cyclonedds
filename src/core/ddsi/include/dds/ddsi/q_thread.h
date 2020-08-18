@@ -50,11 +50,13 @@ typedef int32_t svtime_t; /* signed version */
 
 enum thread_state {
   THREAD_STATE_ZERO, /* known to be dead */
+  THREAD_STATE_STOPPED, /* internal thread, stopped-but-not-reaped */
+  THREAD_STATE_INIT, /* internal thread, initializing */
   THREAD_STATE_LAZILY_CREATED, /* lazily created in response because an application used it. Reclaimed if the thread terminates, but not considered an error if all of Cyclone is shutdown while this thread hasn't terminated yet */
   THREAD_STATE_ALIVE /* known to be alive - for Cyclone internal threads */
 };
 
-struct q_globals;
+struct ddsi_domaingv;
 struct config;
 struct ddsrt_log_cfg;
 
@@ -67,13 +69,34 @@ struct ddsrt_log_cfg;
  *
  * gv is constant for internal threads, i.e., for threads with state = ALIVE
  * gv is non-NULL for internal threads except thread liveliness monitoring
+ *
+ * Q_THREAD_DEBUG enables some really costly debugging stuff that may not be fully
+ * portable (I used it once, might as well keep it)
  */
+#define Q_THREAD_DEBUG 0
+#if Q_THREAD_DEBUG
+#define Q_THREAD_NSTACKS 20
+#define Q_THREAD_STACKDEPTH 10
+#define Q_THREAD_BASE_DEBUG \
+  void *stks[Q_THREAD_NSTACKS][Q_THREAD_STACKDEPTH]; \
+  int stks_depth[Q_THREAD_NSTACKS]; \
+  int stks_idx;
+
+struct thread_state1;
+void thread_vtime_trace (struct thread_state1 *ts1);
+#else /* Q_THREAD_DEBUG */
+#define Q_THREAD_BASE_DEBUG
+#define thread_vtime_trace(ts1) do { } while (0)
+#endif /* Q_THREAD_DEBUG */
+
 #define THREAD_BASE                             \
   ddsrt_atomic_uint32_t vtime;                  \
-  ddsrt_atomic_voidp_t gv;                      \
   enum thread_state state;                      \
+  ddsrt_atomic_voidp_t gv;                      \
   ddsrt_thread_t tid;                           \
-  ddsrt_thread_t extTid;                        \
+  uint32_t (*f) (void *arg);                    \
+  void *f_arg;                                  \
+  Q_THREAD_BASE_DEBUG /* note: no semicolon! */ \
   char name[24] /* note: no semicolon! */
 
 struct thread_state_base {
@@ -103,12 +126,10 @@ DDS_EXPORT bool thread_states_fini (void);
 
 DDS_EXPORT const struct config_thread_properties_listelem *lookup_thread_properties (const struct config *config, const char *name);
 DDS_EXPORT dds_return_t create_thread_with_properties (struct thread_state1 **ts1, struct config_thread_properties_listelem const * const tprops, const char *name, uint32_t (*f) (void *arg), void *arg);
-DDS_EXPORT dds_return_t create_thread (struct thread_state1 **ts, const struct q_globals *gv, const char *name, uint32_t (*f) (void *arg), void *arg);
+DDS_EXPORT dds_return_t create_thread (struct thread_state1 **ts, const struct ddsi_domaingv *gv, const char *name, uint32_t (*f) (void *arg), void *arg);
 DDS_EXPORT struct thread_state1 *lookup_thread_state_real (void);
 DDS_EXPORT dds_return_t join_thread (struct thread_state1 *ts1);
-DDS_EXPORT void log_stack_traces (const struct ddsrt_log_cfg *logcfg, const struct q_globals *gv);
-DDS_EXPORT void reset_thread_state (struct thread_state1 *ts1);
-DDS_EXPORT int thread_exists (const char *name);
+DDS_EXPORT void log_stack_traces (const struct ddsrt_log_cfg *logcfg, const struct ddsi_domaingv *gv);
 
 DDS_EXPORT inline struct thread_state1 *lookup_thread_state (void) {
   struct thread_state1 *ts1 = tsd_thread_state;
@@ -154,6 +175,7 @@ DDS_EXPORT inline void thread_state_asleep (struct thread_state1 *ts1)
   assert (vtime_awake_p (vt));
   /* nested calls a rare and an extra fence doesn't break things */
   ddsrt_atomic_fence_rel ();
+  thread_vtime_trace (ts1);
   if ((vt & VTIME_NEST_MASK) == 1)
     vt += (1u << VTIME_TIME_SHIFT) - 1u;
   else
@@ -161,13 +183,14 @@ DDS_EXPORT inline void thread_state_asleep (struct thread_state1 *ts1)
   ddsrt_atomic_st32 (&ts1->vtime, vt);
 }
 
-DDS_EXPORT inline void thread_state_awake (struct thread_state1 *ts1, const struct q_globals *gv)
+DDS_EXPORT inline void thread_state_awake (struct thread_state1 *ts1, const struct ddsi_domaingv *gv)
 {
   vtime_t vt = ddsrt_atomic_ld32 (&ts1->vtime);
   assert ((vt & VTIME_NEST_MASK) < VTIME_NEST_MASK);
   assert (gv != NULL);
   assert (ts1->state != THREAD_STATE_ALIVE || gv == ddsrt_atomic_ldvoidp (&ts1->gv));
-  ddsrt_atomic_stvoidp (&ts1->gv, (struct q_globals *) gv);
+  thread_vtime_trace (ts1);
+  ddsrt_atomic_stvoidp (&ts1->gv, (struct ddsi_domaingv *) gv);
   ddsrt_atomic_fence_stst ();
   ddsrt_atomic_st32 (&ts1->vtime, vt + 1u);
   /* nested calls a rare and an extra fence doesn't break things */
@@ -179,6 +202,7 @@ DDS_EXPORT inline void thread_state_awake_domain_ok (struct thread_state1 *ts1)
   vtime_t vt = ddsrt_atomic_ld32 (&ts1->vtime);
   assert ((vt & VTIME_NEST_MASK) < VTIME_NEST_MASK);
   assert (ddsrt_atomic_ldvoidp (&ts1->gv) != NULL);
+  thread_vtime_trace (ts1);
   ddsrt_atomic_st32 (&ts1->vtime, vt + 1u);
   /* nested calls a rare and an extra fence doesn't break things */
   ddsrt_atomic_fence_acq ();
@@ -196,6 +220,7 @@ DDS_EXPORT inline void thread_state_awake_to_awake_no_nest (struct thread_state1
   vtime_t vt = ddsrt_atomic_ld32 (&ts1->vtime);
   assert ((vt & VTIME_NEST_MASK) == 1);
   ddsrt_atomic_fence_rel ();
+  thread_vtime_trace (ts1);
   ddsrt_atomic_st32 (&ts1->vtime, vt + (1u << VTIME_TIME_SHIFT));
   ddsrt_atomic_fence_acq ();
 }

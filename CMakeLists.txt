@@ -10,7 +10,11 @@
 # SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 #
 cmake_minimum_required(VERSION 3.7)
-project(CycloneDDS VERSION 0.5.0)
+project(CycloneDDS VERSION 0.7.0 LANGUAGES C)
+if(CMAKE_VERSION VERSION_LESS 3.12)
+  # GENERATE_EXPORT_HEADER requires a C++ compiler up to version 3.12
+  enable_language(CXX)
+endif()
 
 # Set a default build type if none was specified
 set(default_build_type "RelWithDebInfo")
@@ -170,25 +174,30 @@ if(${CMAKE_GENERATOR} STREQUAL "Xcode")
   set (CMAKE_XCODE_ATTRIBUTE_GCC_WARN_ABOUT_MISSING_PROTOTYPES YES)
 endif()
 
-# Make it easy to enable one of Clang's/gcc's analyzers, and default to using
-# the address sanitizer for ordinary debug builds; gcc is giving some grief on
-# Travis, so don't enable it for gcc by default
-if(NOT USE_SANITIZER)
-  if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug" AND
-      NOT ("${CMAKE_GENERATOR}" STREQUAL "Xcode") AND
-      ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang"
-        OR "${CMAKE_C_COMPILER_ID}" STREQUAL "AppleClang"))
-    message(STATUS "Enabling address sanitizer; set USE_SANITIZER=none to prevent this")
-    set(USE_SANITIZER address)
-  else()
-    set(USE_SANITIZER none)
-  endif()
+if(CMAKE_VERSION VERSION_LESS 3.13)
+  macro(add_link_options)
+    link_libraries(${ARGV})
+  endmacro()
 endif()
-if(NOT ("${USE_SANITIZER}" STREQUAL "none"))
-  message(STATUS "Sanitizer set to ${USE_SANITIZER}")
-  add_compile_options(-fno-omit-frame-pointer -fsanitize=${USE_SANITIZER})
-  link_libraries(-fno-omit-frame-pointer -fsanitize=${USE_SANITIZER})
+
+# Make it easy to enable Clang's/gcc's analyzers
+set(USE_SANITIZER "" CACHE STRING "Sanitizers to enable on the build.")
+if(USE_SANITIZER)
+  string(REGEX REPLACE " " "" USE_SANITIZER "${USE_SANITIZER}")
+  string(REGEX REPLACE "[,;]+" ";" USE_SANITIZER "${USE_SANITIZER}")
+  foreach(san ${USE_SANITIZER})
+    if(san STREQUAL "address")
+      add_compile_options("-fno-omit-frame-pointer")
+      add_link_options("-fno-omit-frame-pointer")
+    endif()
+    if(san AND NOT san STREQUAL "none")
+      message(STATUS "Enabling sanitizer: ${san}")
+      add_compile_options("-fsanitize=${san}")
+      add_link_options("-fsanitize=${san}")
+    endif()
+  endforeach()
 endif()
+
 
 include(GNUInstallDirs)
 include(AnalyzeBuild)
@@ -205,6 +214,13 @@ set(MEMORYCHECK_COMMAND_OPTIONS "--track-origins=yes --leak-check=full --trace-c
 option(BUILD_TESTING "Build the testing tree." OFF)
 include(CTest)
 
+option(BUILD_DOCS "Build documentation." OFF)
+if(CMAKE_CROSSCOMPILING)
+  set(not_crosscompiling OFF)
+else()
+  set(not_crosscompiling ON)
+endif()
+option(BUILD_SCHEMA "Build generated schema for configuration options." ${not_crosscompiling})
 # Build all executables and libraries into the top-level /bin and /lib folders.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
@@ -216,7 +232,7 @@ if(BUILD_IDLC)
   add_subdirectory(examples)
 endif()
 
-option(BUILD_DOCS "Build documentation." OFF)
+
 add_subdirectory(docs)
 
 # Pull-in CPack and support for generating <Package>Config.cmake and packages.

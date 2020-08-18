@@ -27,7 +27,7 @@
 #include "dds/ddsi/q_misc.h"
 #include "dds/ddsi/q_config.h"
 #include "dds/ddsi/q_log.h"
-#include "dds/ddsi/q_plist.h"
+#include "dds/ddsi/ddsi_plist.h"
 #include "dds/ddsi/q_unused.h"
 #include "dds/ddsi/q_bswap.h"
 #include "dds/ddsi/q_lat_estim.h"
@@ -41,8 +41,8 @@
 #include "dds/ddsi/q_lease.h"
 #include "dds/ddsi/q_gc.h"
 #include "dds/ddsi/q_entity.h"
-#include "dds/ddsi/q_nwif.h"
-#include "dds/ddsi/q_globals.h"
+#include "dds/ddsi/ddsi_ownip.h"
+#include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/ddsi/q_xmsg.h"
 #include "dds/ddsi/q_receive.h"
 #include "dds/ddsi/q_pcap.h"
@@ -50,6 +50,7 @@
 #include "dds/ddsi/q_debmon.h"
 #include "dds/ddsi/q_init.h"
 #include "dds/ddsi/ddsi_threadmon.h"
+#include "dds/ddsi/ddsi_pmd.h"
 
 #include "dds/ddsi/ddsi_tran.h"
 #include "dds/ddsi/ddsi_udp.h"
@@ -57,12 +58,17 @@
 #include "dds/ddsi/ddsi_raweth.h"
 #include "dds/ddsi/ddsi_mcgroup.h"
 #include "dds/ddsi/ddsi_serdata_default.h"
+#include "dds/ddsi/ddsi_serdata_pserop.h"
+#include "dds/ddsi/ddsi_serdata_plist.h"
+#include "dds/ddsi/ddsi_security_omg.h"
 
 #include "dds/ddsi/ddsi_tkmap.h"
 #include "dds__whc.h"
 #include "dds/ddsi/ddsi_iid.h"
 
-static void add_peer_addresses (const struct q_globals *gv, struct addrset *as, const struct config_peer_listelem *list)
+#include "dds/ddsi/ddsi_security_omg.h"
+
+static void add_peer_addresses (const struct ddsi_domaingv *gv, struct addrset *as, const struct config_peer_listelem *list)
 {
   while (list)
   {
@@ -72,13 +78,16 @@ static void add_peer_addresses (const struct q_globals *gv, struct addrset *as, 
 }
 
 enum make_uc_sockets_ret {
-  MUSRET_SUCCESS,
-  MUSRET_INVALID_PORTS,
-  MUSRET_NOSOCKET
+  MUSRET_SUCCESS,       /* unicast socket(s) created */
+  MUSRET_INVALID_PORTS, /* specified port numbers are invalid */
+  MUSRET_PORTS_IN_USE,  /* ports were in use, keep trying */
+  MUSRET_ERROR          /* generic error, no use continuing */
 };
 
-static enum make_uc_sockets_ret make_uc_sockets (struct q_globals *gv, uint32_t * pdisc, uint32_t * pdata, int ppid)
+static enum make_uc_sockets_ret make_uc_sockets (struct ddsi_domaingv *gv, uint32_t * pdisc, uint32_t * pdata, int ppid)
 {
+  dds_return_t rc;
+
   if (gv->config.many_sockets_mode == MSM_NO_UNICAST)
   {
     assert (ppid == PARTICIPANT_INDEX_NONE);
@@ -96,44 +105,64 @@ static enum make_uc_sockets_ret make_uc_sockets (struct q_globals *gv, uint32_t 
   if (!ddsi_is_valid_port (gv->m_factory, *pdisc) || !ddsi_is_valid_port (gv->m_factory, *pdata))
     return MUSRET_INVALID_PORTS;
 
-  gv->disc_conn_uc = ddsi_factory_create_conn (gv->m_factory, *pdisc, NULL);
-  if (gv->disc_conn_uc)
+  const ddsi_tran_qos_t qos = { .m_purpose = DDSI_TRAN_QOS_RECV_UC, .m_diffserv = 0 };
+  rc = ddsi_factory_create_conn (&gv->disc_conn_uc, gv->m_factory, *pdisc, &qos);
+  if (rc != DDS_RETCODE_OK)
+    goto fail_disc;
+
+  if (*pdata == 0 || *pdata == *pdisc)
+    gv->data_conn_uc = gv->disc_conn_uc;
+  else
   {
-    /* Check not configured to use same unicast port for data and discovery */
-
-    if (*pdata != 0 && (*pdata != *pdisc))
-    {
-      gv->data_conn_uc = ddsi_factory_create_conn (gv->m_factory, *pdata, NULL);
-    }
-    else
-    {
-      gv->data_conn_uc = gv->disc_conn_uc;
-    }
-    if (gv->data_conn_uc == NULL)
-    {
-      ddsi_conn_free (gv->disc_conn_uc);
-      gv->disc_conn_uc = NULL;
-    }
-    else
-    {
-      /* Set unicast locators */
-      ddsi_conn_locator (gv->disc_conn_uc, &gv->loc_meta_uc);
-      ddsi_conn_locator (gv->data_conn_uc, &gv->loc_default_uc);
-    }
+    rc = ddsi_factory_create_conn (&gv->data_conn_uc, gv->m_factory, *pdata, &qos);
+    if (rc != DDS_RETCODE_OK)
+      goto fail_data;
   }
+  ddsi_conn_locator (gv->disc_conn_uc, &gv->loc_meta_uc);
+  ddsi_conn_locator (gv->data_conn_uc, &gv->loc_default_uc);
+  return MUSRET_SUCCESS;
 
-  return gv->data_conn_uc ? MUSRET_SUCCESS : MUSRET_NOSOCKET;
+fail_data:
+  ddsi_conn_free (gv->disc_conn_uc);
+  gv->disc_conn_uc = NULL;
+fail_disc:
+  if (rc == DDS_RETCODE_PRECONDITION_NOT_MET)
+    return MUSRET_PORTS_IN_USE;
+  return MUSRET_ERROR;
 }
 
 static void make_builtin_endpoint_xqos (dds_qos_t *q, const dds_qos_t *template)
 {
-  nn_xqos_copy (q, template);
+  ddsi_xqos_copy (q, template);
   q->reliability.kind = DDS_RELIABILITY_RELIABLE;
-  q->reliability.max_blocking_time = 100 * T_MILLISECOND;
+  q->reliability.max_blocking_time = DDS_MSECS (100);
   q->durability.kind = DDS_DURABILITY_TRANSIENT_LOCAL;
 }
 
-static int set_recvips (struct q_globals *gv)
+#ifdef DDSI_INCLUDE_SECURITY
+static void make_builtin_volatile_endpoint_xqos (dds_qos_t *q, const dds_qos_t *template)
+{
+  ddsi_xqos_copy (q, template);
+  q->reliability.kind = DDS_RELIABILITY_RELIABLE;
+  q->reliability.max_blocking_time = DDS_MSECS (100);
+  q->durability.kind = DDS_DURABILITY_VOLATILE;
+  q->history.kind = DDS_HISTORY_KEEP_ALL;
+}
+
+static void add_property_to_xqos(dds_qos_t *q, const char *name, const char *value)
+{
+  assert(!(q->present & QP_PROPERTY_LIST));
+  q->present |= QP_PROPERTY_LIST;
+  q->property.value.n = 1;
+  q->property.value.props = ddsrt_malloc(sizeof(dds_property_t));
+  q->property.binary_value.n = 0;
+  q->property.binary_value.props = NULL;
+  q->property.value.props[0].name = ddsrt_strdup(name);
+  q->property.value.props[0].value = ddsrt_strdup(value);
+}
+#endif
+
+static int set_recvips (struct ddsi_domaingv *gv)
 {
   gv->recvips = NULL;
 
@@ -238,7 +267,7 @@ static int set_recvips (struct q_globals *gv)
  *   return -1 : ddsi is unicast, but 'mc' indicates it expects multicast
  *   return  0 : ddsi is multicast, but 'mc' indicates it expects unicast
  * The return 0 means that the possible changes in 'loc' can be ignored. */
-static int string_to_default_locator (const struct q_globals *gv, nn_locator_t *loc, const char *string, uint32_t port, int mc, const char *tag)
+static int string_to_default_locator (const struct ddsi_domaingv *gv, nn_locator_t *loc, const char *string, uint32_t port, int mc, const char *tag)
 {
   if (strspn (string, " \t") == strlen (string))
   {
@@ -277,11 +306,12 @@ static int string_to_default_locator (const struct q_globals *gv, nn_locator_t *
   return 1;
 }
 
-static int set_spdp_address (struct q_globals *gv)
+static int set_spdp_address (struct ddsi_domaingv *gv)
 {
   const uint32_t port = ddsi_get_port (&gv->config, DDSI_PORT_MULTI_DISC, 0);
   int rc = 0;
   /* FIXME: FIXME: FIXME: */
+  gv->loc_spdp_mc.tran = NULL;
   gv->loc_spdp_mc.kind = NN_LOCATOR_KIND_INVALID;
   if (strcmp (gv->config.spdpMulticastAddressString, "239.255.0.1") != 0)
   {
@@ -309,7 +339,7 @@ static int set_spdp_address (struct q_globals *gv)
   return 0;
 }
 
-static int set_default_mc_address (struct q_globals *gv)
+static int set_default_mc_address (struct ddsi_domaingv *gv)
 {
   const uint32_t port = ddsi_get_port (&gv->config, DDSI_PORT_MULTI_DATA, 0);
   int rc;
@@ -323,7 +353,7 @@ static int set_default_mc_address (struct q_globals *gv)
   return 0;
 }
 
-static int set_ext_address_and_mask (struct q_globals *gv)
+static int set_ext_address_and_mask (struct ddsi_domaingv *gv)
 {
   nn_locator_t loc;
   int rc;
@@ -342,6 +372,7 @@ static int set_ext_address_and_mask (struct q_globals *gv)
   if (!gv->config.externalMaskString || strcmp (gv->config.externalMaskString, "0.0.0.0") == 0)
   {
     memset(&gv->extmask.address, 0, sizeof(gv->extmask.address));
+    gv->extmask.tran = NULL;
     gv->extmask.kind = NN_LOCATOR_KIND_INVALID;
     gv->extmask.port = NN_LOCATOR_PORT_INVALID;
   }
@@ -359,7 +390,7 @@ static int set_ext_address_and_mask (struct q_globals *gv)
 }
 
 #ifdef DDSI_INCLUDE_NETWORK_CHANNELS
-static int known_channel_p (const struct q_globals *gv, const char *name)
+static int known_channel_p (const struct ddsi_domaingv *gv, const char *name)
 {
   const struct config_channel_listelem *c;
   for (c = gv->config.channels; c; c = c->next)
@@ -369,13 +400,13 @@ static int known_channel_p (const struct q_globals *gv, const char *name)
 }
 #endif
 
-static int check_thread_properties (const struct q_globals *gv)
+static int check_thread_properties (const struct ddsi_domaingv *gv)
 {
 #ifdef DDSI_INCLUDE_NETWORK_CHANNELS
-  static const char *fixed[] = { "recv", "tev", "gc", "lease", "dq.builtins", "debmon", NULL };
+  static const char *fixed[] = { "recv", "tev", "gc", "lease", "dq.builtins", "debmon", "fsm", NULL };
   static const char *chanprefix[] = { "xmit.", "tev.","dq.",NULL };
 #else
-  static const char *fixed[] = { "recv", "tev", "gc", "lease", "dq.builtins", "xmit.user", "dq.user", "debmon", NULL };
+  static const char *fixed[] = { "recv", "tev", "gc", "lease", "dq.builtins", "xmit.user", "dq.user", "debmon", "fsm", NULL };
 #endif
   const struct config_thread_properties_listelem *e;
   int ok = 1, i;
@@ -409,7 +440,7 @@ static int check_thread_properties (const struct q_globals *gv)
   return ok;
 }
 
-int rtps_config_open_trace (struct q_globals *gv)
+int rtps_config_open_trace (struct ddsi_domaingv *gv)
 {
   DDSRT_WARNING_MSVC_OFF(4996);
   int status;
@@ -445,7 +476,7 @@ int rtps_config_open_trace (struct q_globals *gv)
   DDSRT_WARNING_MSVC_ON(4996);
 }
 
-int rtps_config_prep (struct q_globals *gv, struct cfgst *cfgst)
+int rtps_config_prep (struct ddsi_domaingv *gv, struct cfgst *cfgst)
 {
 #ifdef DDSI_INCLUDE_NETWORK_CHANNELS
   unsigned num_channels = 0;
@@ -611,7 +642,7 @@ err_config_late_error:
 }
 
 struct joinleave_spdp_defmcip_helper_arg {
-  struct q_globals *gv;
+  struct ddsi_domaingv *gv;
   int errcount;
   int dojoin;
 };
@@ -637,7 +668,7 @@ static void joinleave_spdp_defmcip_helper (const nn_locator_t *loc, void *varg)
   }
 }
 
-int joinleave_spdp_defmcip (struct q_globals *gv, int dojoin)
+int joinleave_spdp_defmcip (struct ddsi_domaingv *gv, int dojoin)
 {
   /* Addrset provides an easy way to filter out duplicates */
   struct joinleave_spdp_defmcip_helper_arg arg;
@@ -659,12 +690,11 @@ int joinleave_spdp_defmcip (struct q_globals *gv, int dojoin)
   return 0;
 }
 
-int create_multicast_sockets (struct q_globals *gv)
+int create_multicast_sockets (struct ddsi_domaingv *gv)
 {
-  ddsi_tran_qos_t qos = ddsi_tran_create_qos ();
+  const ddsi_tran_qos_t qos = { .m_purpose = DDSI_TRAN_QOS_RECV_MC, .m_diffserv = 0 };
   ddsi_tran_conn_t disc, data;
   uint32_t port;
-  qos->m_multicast = 1;
 
   port = ddsi_get_port (&gv->config, DDSI_PORT_MULTI_DISC, 0);
   if (!ddsi_is_valid_port (gv->m_factory, port))
@@ -673,7 +703,7 @@ int create_multicast_sockets (struct q_globals *gv)
              gv->config.extDomainId.value, port);
     goto err_disc;
   }
-  if ((disc = ddsi_factory_create_conn (gv->m_factory, port, qos)) == NULL)
+  if (ddsi_factory_create_conn (&disc, gv->m_factory, port, &qos) != DDS_RETCODE_OK)
     goto err_disc;
   if (gv->config.many_sockets_mode == MSM_NO_UNICAST)
   {
@@ -689,12 +719,9 @@ int create_multicast_sockets (struct q_globals *gv)
                gv->config.extDomainId.value, port);
       goto err_disc;
     }
-    if ((data = ddsi_factory_create_conn (gv->m_factory, port, qos)) == NULL)
-    {
+    if (ddsi_factory_create_conn (&data, gv->m_factory, port, &qos) != DDS_RETCODE_OK)
       goto err_data;
-    }
   }
-  ddsi_tran_free_qos (qos);
 
   gv->disc_conn_mc = disc;
   gv->data_conn_mc = data;
@@ -705,11 +732,10 @@ int create_multicast_sockets (struct q_globals *gv)
 err_data:
   ddsi_conn_free (disc);
 err_disc:
-  ddsi_tran_free_qos (qos);
   return 0;
 }
 
-static void rtps_term_prep (struct q_globals *gv)
+static void rtps_term_prep (struct ddsi_domaingv *gv)
 {
   /* Stop all I/O */
   ddsrt_mutex_lock (&gv->lock);
@@ -724,26 +750,26 @@ static void rtps_term_prep (struct q_globals *gv)
 }
 
 struct wait_for_receive_threads_helper_arg {
-  struct q_globals *gv;
+  struct ddsi_domaingv *gv;
   unsigned count;
 };
 
-static void wait_for_receive_threads_helper (struct xevent *xev, void *varg, nn_mtime_t tnow)
+static void wait_for_receive_threads_helper (struct xevent *xev, void *varg, ddsrt_mtime_t tnow)
 {
   struct wait_for_receive_threads_helper_arg * const arg = varg;
   if (arg->count++ == arg->gv->config.recv_thread_stop_maxretries)
     abort ();
   trigger_recv_threads (arg->gv);
-  (void) resched_xevent_if_earlier (xev, add_duration_to_mtime (tnow, T_SECOND));
+  (void) resched_xevent_if_earlier (xev, ddsrt_mtime_add_duration (tnow, DDS_SECS (1)));
 }
 
-static void wait_for_receive_threads (struct q_globals *gv)
+static void wait_for_receive_threads (struct ddsi_domaingv *gv)
 {
   struct xevent *trigev;
   struct wait_for_receive_threads_helper_arg cbarg;
   cbarg.gv = gv;
   cbarg.count = 0;
-  if ((trigev = qxev_callback (gv->xevents, add_duration_to_mtime (now_mt (), T_SECOND), wait_for_receive_threads_helper, &cbarg)) == NULL)
+  if ((trigev = qxev_callback (gv->xevents, ddsrt_mtime_add_duration (ddsrt_time_monotonic (), DDS_SECS (1)), wait_for_receive_threads_helper, &cbarg)) == NULL)
   {
     /* retrying is to deal a packet geting lost because the socket buffer is full or because the
        macOS firewall (and perhaps others) likes to ask if the process is allowed to receive data,
@@ -765,39 +791,112 @@ static void wait_for_receive_threads (struct q_globals *gv)
   }
 }
 
-static struct ddsi_sertopic *make_special_topic (struct serdatapool *serpool, uint16_t enc_id, const struct ddsi_serdata_ops *ops)
+static struct ddsi_sertopic *make_special_topic_pserop (const char *name, const char *typename, size_t memsize, size_t nops, const enum pserop *ops, size_t nops_key, const enum pserop *ops_key)
 {
-  /* FIXME: two things (at least)
-     - it claims there is a key, but the underlying type description is missing
-       that only works as long as it ends up comparing the keyhash field ...
-       the keyhash field should be eliminated; but this can simply be moved over to an alternate
-       topic class, it need not use the "default" one, that's mere expediency
-     - initialising/freeing them here, in this manner, is not very clean
-       it should be moved to somewhere in the topic implementation
-       (kinda natural if they stop being "default" ones) */
-  struct ddsi_sertopic_default *st = ddsrt_malloc (sizeof (*st));
+  struct ddsi_sertopic_pserop *st = ddsrt_malloc (sizeof (*st));
   memset (st, 0, sizeof (*st));
-  ddsi_sertopic_init_anon (&st->c, &ddsi_sertopic_ops_default, ops, false);
-  st->native_encoding_identifier = enc_id;
-  st->serpool = serpool;
-  st->nkeys = 1;
+  ddsi_sertopic_init (&st->c, name, typename, &ddsi_sertopic_ops_pserop, &ddsi_serdata_ops_pserop, nops_key == 0);
+  st->native_encoding_identifier = (DDSRT_ENDIAN == DDSRT_LITTLE_ENDIAN) ? CDR_LE : CDR_BE;
+  st->memsize = memsize;
+  st->nops = nops;
+  st->ops = ops;
+  st->nops_key = nops_key;
+  st->ops_key = ops_key;
   return (struct ddsi_sertopic *) st;
 }
 
-static void make_special_topics (struct q_globals *gv)
+static struct ddsi_sertopic *make_special_topic_plist (const char *name, const char *typename, nn_parameterid_t keyparam)
 {
-  gv->plist_topic = make_special_topic (gv->serpool, DDSRT_ENDIAN == DDSRT_LITTLE_ENDIAN ? PL_CDR_LE : PL_CDR_BE, &ddsi_serdata_ops_plist);
-  gv->rawcdr_topic = make_special_topic (gv->serpool, DDSRT_ENDIAN == DDSRT_LITTLE_ENDIAN ? CDR_LE : CDR_BE, &ddsi_serdata_ops_rawcdr);
+  struct ddsi_sertopic_plist *st = ddsrt_malloc (sizeof (*st));
+  memset (st, 0, sizeof (*st));
+  ddsi_sertopic_init (&st->c, name, typename, &ddsi_sertopic_ops_plist, &ddsi_serdata_ops_plist, false);
+  st->native_encoding_identifier = (DDSRT_ENDIAN == DDSRT_LITTLE_ENDIAN) ? PL_CDR_LE : PL_CDR_BE;
+  st->keyparam = keyparam;
+  return (struct ddsi_sertopic *) st;
 }
 
-static void free_special_topics (struct q_globals *gv)
+static void free_special_topics (struct ddsi_domaingv *gv)
 {
-  ddsi_sertopic_unref (gv->plist_topic);
-  ddsi_sertopic_unref (gv->rawcdr_topic);
+#ifdef DDSI_INCLUDE_SECURITY
+  ddsi_sertopic_unref (gv->pgm_volatile_topic);
+  ddsi_sertopic_unref (gv->pgm_stateless_topic);
+  ddsi_sertopic_unref (gv->pmd_secure_topic);
+  ddsi_sertopic_unref (gv->spdp_secure_topic);
+  ddsi_sertopic_unref (gv->sedp_reader_secure_topic);
+  ddsi_sertopic_unref (gv->sedp_writer_secure_topic);
+#endif
+  ddsi_sertopic_unref (gv->pmd_topic);
+  ddsi_sertopic_unref (gv->spdp_topic);
+  ddsi_sertopic_unref (gv->sedp_reader_topic);
+  ddsi_sertopic_unref (gv->sedp_writer_topic);
 }
 
-static int setup_and_start_recv_threads (struct q_globals *gv)
+static void make_special_topics (struct ddsi_domaingv *gv)
 {
+  gv->spdp_topic = make_special_topic_plist ("DCPSParticipant", "ParticipantBuiltinTopicData", PID_PARTICIPANT_GUID);
+  gv->sedp_reader_topic = make_special_topic_plist ("DCPSSubscription", "SubscriptionBuiltinTopicData", PID_ENDPOINT_GUID);
+  gv->sedp_writer_topic = make_special_topic_plist ("DCPSPublication", "PublicationBuiltinTopicData", PID_ENDPOINT_GUID);
+  gv->pmd_topic = make_special_topic_pserop ("DCPSParticipantMessage", "ParticipantMessageData", sizeof (ParticipantMessageData_t), participant_message_data_nops, participant_message_data_ops, participant_message_data_nops_key, participant_message_data_ops_key);
+
+#ifdef DDSI_INCLUDE_SECURITY
+  gv->spdp_secure_topic = make_special_topic_plist ("DCPSParticipantsSecure", "ParticipantBuiltinTopicDataSecure", PID_PARTICIPANT_GUID);
+  gv->sedp_reader_secure_topic = make_special_topic_plist ("DCPSSubscriptionsSecure", "SubscriptionBuiltinTopicDataSecure", PID_ENDPOINT_GUID);
+  gv->sedp_writer_secure_topic = make_special_topic_plist ("DCPSPublicationsSecure", "PublicationBuiltinTopicDataSecure", PID_ENDPOINT_GUID);
+  gv->pmd_secure_topic = make_special_topic_pserop ("DCPSParticipantMessageSecure", "ParticipantMessageDataSecure", sizeof (ParticipantMessageData_t), participant_message_data_nops, participant_message_data_ops, participant_message_data_nops_key, participant_message_data_ops_key);
+  gv->pgm_stateless_topic = make_special_topic_pserop ("DCPSParticipantStatelessMessage", "ParticipantStatelessMessage", sizeof (nn_participant_generic_message_t), pserop_participant_generic_message_nops, pserop_participant_generic_message, 0, NULL);
+  gv->pgm_volatile_topic = make_special_topic_pserop ("DCPSParticipantVolatileMessageSecure", "ParticipantVolatileMessageSecure", sizeof (nn_participant_generic_message_t), pserop_participant_generic_message_nops, pserop_participant_generic_message, 0, NULL);
+#endif
+
+  ddsrt_mutex_lock (&gv->sertopics_lock);
+  ddsi_sertopic_register_locked (gv, gv->spdp_topic);
+  ddsi_sertopic_register_locked (gv, gv->sedp_reader_topic);
+  ddsi_sertopic_register_locked (gv, gv->sedp_writer_topic);
+  ddsi_sertopic_register_locked (gv, gv->pmd_topic);
+#ifdef DDSI_INCLUDE_SECURITY
+  ddsi_sertopic_register_locked (gv, gv->spdp_secure_topic);
+  ddsi_sertopic_register_locked (gv, gv->sedp_reader_secure_topic);
+  ddsi_sertopic_register_locked (gv, gv->sedp_writer_secure_topic);
+  ddsi_sertopic_register_locked (gv, gv->pmd_secure_topic);
+  ddsi_sertopic_register_locked (gv, gv->pgm_stateless_topic);
+  ddsi_sertopic_register_locked (gv, gv->pgm_volatile_topic);
+#endif
+  ddsrt_mutex_unlock (&gv->sertopics_lock);
+
+  /* register increments refcount (which is reasonable), but at some point
+     one needs to get rid of that reference */
+  free_special_topics (gv);
+}
+
+static bool use_multiple_receive_threads (const struct config *cfg)
+{
+  /* Under some unknown circumstances Windows (at least Windows 10) exhibits
+     the interesting behaviour of losing its ability to let us send packets
+     to our own sockets. When that happens, dedicated receive threads can no
+     longer be stopped and Cyclone hangs in shutdown.  So until someone
+     figures out why this happens, it is probably best have a different
+     default on Windows. */
+#if _WIN32
+  const bool def = false;
+#else
+  const bool def = true;
+#endif
+  switch (cfg->multiple_recv_threads)
+  {
+    case BOOLDEF_FALSE:
+      return false;
+    case BOOLDEF_TRUE:
+      return true;
+    case BOOLDEF_DEFAULT:
+      return def;
+  }
+  assert (0);
+  return false;
+}
+
+static int setup_and_start_recv_threads (struct ddsi_domaingv *gv)
+{
+  const bool multi_recv_thr = use_multiple_receive_threads (&gv->config);
+
   for (uint32_t i = 0; i < MAX_RECV_THREADS; i++)
   {
     gv->recv_threads[i].ts = NULL;
@@ -812,7 +911,7 @@ static int setup_and_start_recv_threads (struct q_globals *gv)
   gv->n_recv_threads = 1;
   gv->recv_threads[0].name = "recv";
   gv->recv_threads[0].arg.mode = RTM_MANY;
-  if (gv->m_factory->m_connless && gv->config.many_sockets_mode != MSM_NO_UNICAST && gv->config.multiple_recv_threads)
+  if (gv->m_factory->m_connless && gv->config.many_sockets_mode != MSM_NO_UNICAST && multi_recv_thr)
   {
     if (ddsi_is_mcaddr (gv, &gv->loc_default_mc) && !ddsi_is_ssm_mcaddr (gv, &gv->loc_default_mc) && (gv->config.allowMulticast & AMC_ASM))
     {
@@ -878,21 +977,71 @@ fail:
   return -1;
 }
 
-int rtps_init (struct q_globals *gv)
+static int ddsi_sertopic_equal_wrap (const void *a, const void *b)
+{
+  return ddsi_sertopic_equal (a, b);
+}
+
+static uint32_t ddsi_sertopic_hash_wrap (const void *tp)
+{
+  return ddsi_sertopic_hash (tp);
+}
+
+static void reset_deaf_mute (struct xevent *xev, void *varg, UNUSED_ARG (ddsrt_mtime_t tnow))
+{
+  struct ddsi_domaingv *gv = varg;
+  gv->deaf = 0;
+  gv->mute = 0;
+  GVLOGDISC ("DEAFMUTE auto-reset to [deaf, mute]=[%d, %d]\n", gv->deaf, gv->mute);
+  delete_xevent (xev);
+}
+
+void ddsi_set_deafmute (struct ddsi_domaingv *gv, bool deaf, bool mute, int64_t reset_after)
+{
+  gv->deaf = deaf;
+  gv->mute = mute;
+  GVLOGDISC (" DEAFMUTE set [deaf, mute]=[%d, %d]", gv->deaf, gv->mute);
+  if (reset_after < DDS_INFINITY)
+  {
+    ddsrt_mtime_t when = ddsrt_mtime_add_duration (ddsrt_time_monotonic (), reset_after);
+    GVTRACE (" reset after %"PRId64".%09u ns", reset_after / DDS_NSECS_IN_SEC, (unsigned) (reset_after % DDS_NSECS_IN_SEC));
+    qxev_callback (gv->xevents, when, reset_deaf_mute, gv);
+  }
+  GVLOGDISC ("\n");
+}
+
+static void free_conns (struct ddsi_domaingv *gv)
+{
+  // Depending on settings, various "conn"s can alias others, this makes sure we free each one only once
+  // FIXME: perhaps store them in a table instead?
+  ddsi_tran_conn_t cs[] = { gv->xmit_conn, gv->disc_conn_mc, gv->data_conn_mc, gv->disc_conn_uc, gv->data_conn_uc };
+  for (size_t i = 0; i < sizeof (cs) / sizeof (cs[0]); i++)
+  {
+    if (cs[i] == NULL)
+      continue;
+    for (size_t j = i + 1; j < sizeof (cs) / sizeof (cs[0]); j++)
+      if (cs[i] == cs[j])
+        cs[j] = NULL;
+    ddsi_conn_free (cs[i]);
+  }
+}
+
+int rtps_init (struct ddsi_domaingv *gv)
 {
   uint32_t port_disc_uc = 0;
   uint32_t port_data_uc = 0;
   bool mc_available = true;
+  ddsrt_mtime_t reset_deaf_mute_time = DDSRT_MTIME_NEVER;
 
-  gv->tstart = now ();    /* wall clock time, used in logs */
+  gv->tstart = ddsrt_time_wallclock ();    /* wall clock time, used in logs */
 
-  nn_plist_init_tables ();
+  ddsi_plist_init_tables ();
 
   gv->disc_conn_uc = NULL;
   gv->data_conn_uc = NULL;
   gv->disc_conn_mc = NULL;
   gv->data_conn_mc = NULL;
-  gv->tev_conn = NULL;
+  gv->xmit_conn = NULL;
   gv->listener = NULL;
   gv->thread_pool = NULL;
   gv->debmon = NULL;
@@ -904,6 +1053,15 @@ int rtps_init (struct q_globals *gv)
     char str[DDSRT_RFC3339STRLEN+1];
     ddsrt_ctime(gv->tstart.v, str, sizeof(str));
     GVLOG (DDS_LC_CONFIG, "started at %d.06%d -- %s\n", sec, usec, str);
+  }
+
+  /* Allow configuration to set "deaf_mute" in case we want to start out that way */
+  gv->deaf = gv->config.initial_deaf;
+  gv->mute = gv->config.initial_mute;
+  if (gv->deaf || gv->mute)
+  {
+    GVLOG (DDS_LC_CONFIG | DDS_LC_DISCOVERY, "DEAFMUTE initial deaf=%d mute=%d reset after %"PRId64"d ns\n", gv->deaf, gv->mute, gv->config.initial_deaf_mute_reset);
+    reset_deaf_mute_time = ddsrt_mtime_add_duration (ddsrt_time_monotonic (), gv->config.initial_deaf_mute_reset);
   }
 
   /* Initialize thread pool */
@@ -957,7 +1115,7 @@ int rtps_init (struct q_globals *gv)
   {
     if (!gv->interfaces[gv->selected_interface].mc_capable)
     {
-      GVWARNING ("selected interface is not multicast-capable: disabling multicast\n");
+      GVWARNING ("selected interface \"%s\" is not multicast-capable: disabling multicast\n", gv->interfaces[gv->selected_interface].name);
       gv->config.allowMulticast = AMC_FALSE;
       /* ensure discovery can work: firstly, that the process will be reachable on a "well-known" port
          number, and secondly, that the local interface's IP address gets added to the discovery
@@ -996,12 +1154,11 @@ int rtps_init (struct q_globals *gv)
   {
     char buf[DDSI_LOCSTRLEN];
     /* the "ownip", "extip" labels in the trace have been there for so long, that it seems worthwhile to retain them even though they need not be IP any longer */
-    GVLOG (DDS_LC_CONFIG, "ownip: %s\n", ddsi_locator_to_string_no_port (gv, buf, sizeof(buf), &gv->ownloc));
-    GVLOG (DDS_LC_CONFIG, "extip: %s\n", ddsi_locator_to_string_no_port (gv, buf, sizeof(buf), &gv->extloc));
-    GVLOG (DDS_LC_CONFIG, "extmask: %s%s\n", ddsi_locator_to_string_no_port (gv, buf, sizeof(buf), &gv->extmask), gv->m_factory->m_kind != NN_LOCATOR_KIND_UDPv4 ? " (not applicable)" : "");
-    GVLOG (DDS_LC_CONFIG, "networkid: 0x%lx\n", (unsigned long) gv->myNetworkId);
-    GVLOG (DDS_LC_CONFIG, "SPDP MC: %s\n", ddsi_locator_to_string_no_port (gv, buf, sizeof(buf), &gv->loc_spdp_mc));
-    GVLOG (DDS_LC_CONFIG, "default MC: %s\n", ddsi_locator_to_string_no_port (gv, buf, sizeof(buf), &gv->loc_default_mc));
+    GVLOG (DDS_LC_CONFIG, "ownip: %s\n", ddsi_locator_to_string_no_port (buf, sizeof(buf), &gv->ownloc));
+    GVLOG (DDS_LC_CONFIG, "extip: %s\n", ddsi_locator_to_string_no_port (buf, sizeof(buf), &gv->extloc));
+    GVLOG (DDS_LC_CONFIG, "extmask: %s%s\n", ddsi_locator_to_string_no_port (buf, sizeof(buf), &gv->extmask), gv->m_factory->m_kind != NN_LOCATOR_KIND_UDPv4 ? " (not applicable)" : "");
+    GVLOG (DDS_LC_CONFIG, "SPDP MC: %s\n", ddsi_locator_to_string_no_port (buf, sizeof(buf), &gv->loc_spdp_mc));
+    GVLOG (DDS_LC_CONFIG, "default MC: %s\n", ddsi_locator_to_string_no_port (buf, sizeof(buf), &gv->loc_default_mc));
 #ifdef DDSI_INCLUDE_SSM
     GVLOG (DDS_LC_CONFIG, "SSM support included\n");
 #endif
@@ -1034,19 +1191,36 @@ int rtps_init (struct q_globals *gv)
   gv->xmsgpool = nn_xmsgpool_new ();
   gv->serpool = ddsi_serdatapool_new ();
 
-  nn_plist_init_default_participant (&gv->default_plist_pp);
-  nn_plist_init_default_participant (&gv->default_local_plist_pp);
-  nn_xqos_init_default_reader (&gv->default_xqos_rd);
-  nn_xqos_init_default_writer (&gv->default_xqos_wr);
-  nn_xqos_init_default_writer_noautodispose (&gv->default_xqos_wr_nad);
-  nn_xqos_init_default_topic (&gv->default_xqos_tp);
-  nn_xqos_init_default_subscriber (&gv->default_xqos_sub);
-  nn_xqos_init_default_publisher (&gv->default_xqos_pub);
-  nn_xqos_copy (&gv->spdp_endpoint_xqos, &gv->default_xqos_rd);
+  ddsi_plist_init_default_participant (&gv->default_plist_pp);
+  ddsi_plist_init_default_participant (&gv->default_local_plist_pp);
+  ddsi_xqos_init_default_reader (&gv->default_xqos_rd);
+  ddsi_xqos_init_default_writer (&gv->default_xqos_wr);
+  ddsi_xqos_init_default_writer_noautodispose (&gv->default_xqos_wr_nad);
+  ddsi_xqos_init_default_topic (&gv->default_xqos_tp);
+  ddsi_xqos_init_default_subscriber (&gv->default_xqos_sub);
+  ddsi_xqos_init_default_publisher (&gv->default_xqos_pub);
+  ddsi_xqos_copy (&gv->spdp_endpoint_xqos, &gv->default_xqos_rd);
+  ddsi_xqos_mergein_missing (&gv->spdp_endpoint_xqos, &gv->default_xqos_wr, ~(uint64_t)0);
   gv->spdp_endpoint_xqos.durability.kind = DDS_DURABILITY_TRANSIENT_LOCAL;
+  assert (gv->spdp_endpoint_xqos.reliability.kind == DDS_RELIABILITY_BEST_EFFORT);
   make_builtin_endpoint_xqos (&gv->builtin_endpoint_xqos_rd, &gv->default_xqos_rd);
   make_builtin_endpoint_xqos (&gv->builtin_endpoint_xqos_wr, &gv->default_xqos_wr);
+#ifdef DDSI_INCLUDE_SECURITY
+  make_builtin_volatile_endpoint_xqos(&gv->builtin_volatile_xqos_rd, &gv->default_xqos_rd);
+  make_builtin_volatile_endpoint_xqos(&gv->builtin_volatile_xqos_wr, &gv->default_xqos_wr);
+  ddsi_xqos_copy (&gv->builtin_stateless_xqos_rd, &gv->default_xqos_rd);
+  ddsi_xqos_copy (&gv->builtin_stateless_xqos_wr, &gv->default_xqos_wr);
+  gv->builtin_stateless_xqos_wr.reliability.kind = DDS_RELIABILITY_BEST_EFFORT;
+  gv->builtin_stateless_xqos_wr.durability.kind = DDS_DURABILITY_VOLATILE;
 
+  /* Setting these properties allows the CryptoKeyFactory to recognize
+   * the entities (see DDS Security spec chapter 8.8.8.1). */
+  add_property_to_xqos(&gv->builtin_volatile_xqos_rd, "dds.sec.builtin_endpoint_name", "BuiltinParticipantVolatileMessageSecureReader");
+  add_property_to_xqos(&gv->builtin_volatile_xqos_wr, "dds.sec.builtin_endpoint_name", "BuiltinParticipantVolatileMessageSecureWriter");
+#endif
+
+  ddsrt_mutex_init (&gv->sertopics_lock);
+  gv->sertopics = ddsrt_hh_new (1, ddsi_sertopic_hash_wrap, ddsi_sertopic_equal_wrap);
   make_special_topics (gv);
 
   ddsrt_mutex_init (&gv->participant_set_lock);
@@ -1112,18 +1286,21 @@ int rtps_init (struct q_globals *gv)
           GVERROR ("Failed to create unicast sockets for domain %"PRIu32" participant index %d: resulting port numbers (%"PRIu32", %"PRIu32") are out of range\n",
                    gv->config.extDomainId.value, gv->config.participantIndex, port_disc_uc, port_data_uc);
           goto err_unicast_sockets;
-        case MUSRET_NOSOCKET:
+        case MUSRET_PORTS_IN_USE:
           GVERROR ("rtps_init: failed to create unicast sockets for domain %"PRId32" participant index %d (ports %"PRIu32", %"PRIu32")\n", gv->config.extDomainId.value, gv->config.participantIndex, port_disc_uc, port_data_uc);
+          goto err_unicast_sockets;
+        case MUSRET_ERROR:
+          /* something bad happened; assume make_uc_sockets logged the error */
           goto err_unicast_sockets;
       }
     }
     else if (gv->config.participantIndex == PARTICIPANT_INDEX_AUTO)
     {
       /* try to find a free one, and update gv->config.participantIndex */
-      enum make_uc_sockets_ret musret = MUSRET_NOSOCKET;
+      enum make_uc_sockets_ret musret = MUSRET_PORTS_IN_USE;
       int ppid;
       GVLOG (DDS_LC_CONFIG, "rtps_init: trying to find a free participant index\n");
-      for (ppid = 0; ppid <= gv->config.maxAutoParticipantIndex && musret == MUSRET_NOSOCKET; ppid++)
+      for (ppid = 0; ppid <= gv->config.maxAutoParticipantIndex && musret == MUSRET_PORTS_IN_USE; ppid++)
       {
         musret = make_uc_sockets (gv, &port_disc_uc, &port_data_uc, ppid);
         switch (musret)
@@ -1134,8 +1311,11 @@ int rtps_init (struct q_globals *gv)
             GVERROR ("Failed to create unicast sockets for domain %"PRIu32" participant index %d: resulting port numbers (%"PRIu32", %"PRIu32") are out of range\n",
                      gv->config.extDomainId.value, ppid, port_disc_uc, port_data_uc);
             goto err_unicast_sockets;
-          case MUSRET_NOSOCKET: /* Try next one */
+          case MUSRET_PORTS_IN_USE: /* Try next one */
             break;
+          case MUSRET_ERROR:
+            /* something bad happened; assume make_uc_sockets logged the error */
+            goto err_unicast_sockets;
         }
       }
       if (ppid > gv->config.maxAutoParticipantIndex)
@@ -1155,7 +1335,7 @@ int rtps_init (struct q_globals *gv)
 
   if (gv->config.pcap_file && *gv->config.pcap_file)
   {
-    gv->pcap_fp = new_pcap_file (&gv->logconfig, gv->config.pcap_file);
+    gv->pcap_fp = new_pcap_file (gv, gv->config.pcap_file);
     if (gv->pcap_fp)
     {
       ddsrt_mutex_init (&gv->pcap_lock);
@@ -1198,9 +1378,6 @@ int rtps_init (struct q_globals *gv)
   }
   else
   {
-    /* Must have a data_conn_uc/tev_conn/transmit_conn */
-    gv->data_conn_uc = ddsi_factory_create_conn (gv->m_factory, 0, NULL);
-
     if (gv->config.tcp_port == -1)
       ; /* nop */
     else if (!ddsi_is_valid_port (gv->m_factory, (uint32_t) gv->config.tcp_port))
@@ -1209,8 +1386,9 @@ int rtps_init (struct q_globals *gv)
     }
     else
     {
-      gv->listener = ddsi_factory_create_listener (gv->m_factory, (uint32_t) gv->config.tcp_port, NULL);
-      if (gv->listener == NULL || ddsi_listener_listen (gv->listener) != 0)
+      dds_return_t rc;
+      rc = ddsi_factory_create_listener (&gv->listener, gv->m_factory, (uint32_t) gv->config.tcp_port, NULL);
+      if (rc != DDS_RETCODE_OK || ddsi_listener_listen (gv->listener) != 0)
       {
         GVERROR ("Failed to create %s listener\n", gv->m_factory->m_typename);
         if (gv->listener)
@@ -1228,10 +1406,17 @@ int rtps_init (struct q_globals *gv)
     }
   }
 
-  /* Create shared transmit connection */
-
-  gv->tev_conn = gv->data_conn_uc;
-  GVLOG (DDS_LC_CONFIG, "Timed event transmit port: %d\n", (int) ddsi_conn_port (gv->tev_conn));
+  /* Create shared transmit connection -- FIXME: no longer needed, but can't do the testing right now */
+  if (gv->config.many_sockets_mode == MSM_NO_UNICAST)
+    gv->xmit_conn = gv->data_conn_uc;
+  else
+  {
+    const ddsi_tran_qos_t qos = { .m_purpose = DDSI_TRAN_QOS_XMIT, .m_diffserv = 0 };
+    dds_return_t rc;
+    rc = ddsi_factory_create_conn (&gv->xmit_conn, gv->m_factory, 0, &qos);
+    if (rc != DDS_RETCODE_OK)
+      goto err_mc_conn;
+  }
 
 #ifdef DDSI_INCLUDE_NETWORK_CHANNELS
   {
@@ -1294,7 +1479,7 @@ int rtps_init (struct q_globals *gv)
 
   gv->xevents = xeventq_new
   (
-    gv->tev_conn,
+    gv->xmit_conn,
     gv->config.max_queued_rexmit_bytes,
     gv->config.max_queued_rexmit_msgs,
 #ifdef DDSI_INCLUDE_BANDWIDTH_LIMITING
@@ -1303,6 +1488,10 @@ int rtps_init (struct q_globals *gv)
     0
 #endif
   );
+
+#ifdef DDSI_INCLUDE_SECURITY
+  q_omg_security_init(gv);
+#endif
 
   gv->as_disc = new_addrset ();
   if (gv->config.allowMulticast & AMC_SPDP)
@@ -1314,7 +1503,7 @@ int rtps_init (struct q_globals *gv)
   {
     struct config_peer_listelem peer_local;
     char local_addr[DDSI_LOCSTRLEN];
-    ddsi_locator_to_string_no_port (gv, local_addr, sizeof (local_addr), &gv->interfaces[gv->selected_interface].loc);
+    ddsi_locator_to_string_no_port (local_addr, sizeof (local_addr), &gv->interfaces[gv->selected_interface].loc);
     peer_local.next = NULL;
     peer_local.peer = local_addr;
     add_peer_addresses (gv, gv->as_disc, &peer_local);
@@ -1351,19 +1540,22 @@ int rtps_init (struct q_globals *gv)
   gv->user_dqueue = nn_dqueue_new ("user", gv, gv->config.delivery_queue_maxsamples, user_dqueue_handler, NULL);
 #endif
 
+  if (reset_deaf_mute_time.v < DDS_NEVER)
+    qxev_callback (gv->xevents, reset_deaf_mute_time, reset_deaf_mute, gv);
   return 0;
 
+#if 0
+#ifdef DDSI_INCLUDE_SECURITY
+err_post_omg_security_init:
+  q_omg_security_stop (gv); // should be a no-op as it starts lazily
+  q_omg_security_deinit(gv->security_context);
+  q_omg_security_free (gv);
+#endif
+#endif
 err_mc_conn:
-  if (gv->disc_conn_mc)
-    ddsi_conn_free (gv->disc_conn_mc);
-  if (gv->data_conn_mc && gv->data_conn_mc != gv->disc_conn_mc)
-    ddsi_conn_free (gv->data_conn_mc);
+  free_conns (gv);
   if (gv->pcap_fp)
     ddsrt_mutex_destroy (&gv->pcap_lock);
-  if (gv->disc_conn_uc != gv->disc_conn_mc)
-    ddsi_conn_free (gv->disc_conn_uc);
-  if (gv->data_conn_uc != gv->disc_conn_uc)
-    ddsi_conn_free (gv->data_conn_uc);
   free_group_membership (gv->mship);
 err_unicast_sockets:
   ddsi_tkmap_free (gv->m_tkmap);
@@ -1379,17 +1571,32 @@ err_unicast_sockets:
   ddsrt_cond_destroy (&gv->participant_set_cond);
   ddsrt_mutex_destroy (&gv->participant_set_lock);
   free_special_topics (gv);
-  nn_xqos_fini (&gv->builtin_endpoint_xqos_wr);
-  nn_xqos_fini (&gv->builtin_endpoint_xqos_rd);
-  nn_xqos_fini (&gv->spdp_endpoint_xqos);
-  nn_xqos_fini (&gv->default_xqos_pub);
-  nn_xqos_fini (&gv->default_xqos_sub);
-  nn_xqos_fini (&gv->default_xqos_tp);
-  nn_xqos_fini (&gv->default_xqos_wr_nad);
-  nn_xqos_fini (&gv->default_xqos_wr);
-  nn_xqos_fini (&gv->default_xqos_rd);
-  nn_plist_fini (&gv->default_local_plist_pp);
-  nn_plist_fini (&gv->default_plist_pp);
+#ifndef NDEBUG
+  {
+    struct ddsrt_hh_iter it;
+    assert (ddsrt_hh_iter_first (gv->sertopics, &it) == NULL);
+  }
+#endif
+  ddsrt_hh_free (gv->sertopics);
+  ddsrt_mutex_destroy (&gv->sertopics_lock);
+#ifdef DDSI_INCLUDE_SECURITY
+  ddsi_xqos_fini (&gv->builtin_stateless_xqos_wr);
+  ddsi_xqos_fini (&gv->builtin_stateless_xqos_rd);
+  ddsi_xqos_fini (&gv->builtin_volatile_xqos_wr);
+  ddsi_xqos_fini (&gv->builtin_volatile_xqos_rd);
+#endif
+  ddsi_xqos_fini (&gv->builtin_endpoint_xqos_wr);
+  ddsi_xqos_fini (&gv->builtin_endpoint_xqos_rd);
+  ddsi_xqos_fini (&gv->spdp_endpoint_xqos);
+  ddsi_xqos_fini (&gv->default_xqos_pub);
+  ddsi_xqos_fini (&gv->default_xqos_sub);
+  ddsi_xqos_fini (&gv->default_xqos_tp);
+  ddsi_xqos_fini (&gv->default_xqos_wr_nad);
+  ddsi_xqos_fini (&gv->default_xqos_wr);
+  ddsi_xqos_fini (&gv->default_xqos_rd);
+  ddsi_plist_fini (&gv->default_local_plist_pp);
+  ddsi_plist_fini (&gv->default_plist_pp);
+
   ddsi_serdatapool_free (gv->serpool);
   nn_xmsgpool_free (gv->xmsgpool);
 #ifdef DDSI_INCLUDE_NETWORK_PARTITIONS
@@ -1424,7 +1631,7 @@ static void stop_all_xeventq_upto (struct config_channel_listelem *chptr)
 }
 #endif
 
-int rtps_start (struct q_globals *gv)
+int rtps_start (struct ddsi_domaingv *gv)
 {
   if (xeventq_start (gv->xevents, NULL) < 0)
     return -1;
@@ -1490,7 +1697,7 @@ static void builtins_dqueue_ready_cb (void *varg)
   ddsrt_mutex_unlock (&arg->lock);
 }
 
-void rtps_stop (struct q_globals *gv)
+void rtps_stop (struct ddsi_domaingv *gv)
 {
   struct thread_state1 * const ts1 = lookup_thread_state ();
 
@@ -1550,7 +1757,7 @@ void rtps_stop (struct q_globals *gv)
   {
     struct entidx_enum_proxy_participant est;
     struct proxy_participant *proxypp;
-    const nn_wctime_t tnow = now();
+    const ddsrt_wctime_t tnow = ddsrt_time_wallclock();
     /* Clean up proxy readers, proxy writers and proxy
        participants. Deleting a proxy participants deletes all its
        readers and writers automatically */
@@ -1602,6 +1809,12 @@ void rtps_stop (struct q_globals *gv)
     thread_state_asleep (ts1);
   }
 
+  /* Stop background (handshake) processing in security implementation,
+     do this only once we know no new events will be coming in. */
+#if DDSI_INCLUDE_SECURITY
+  q_omg_security_stop (gv);
+#endif
+
   /* Wait until all participants are really gone => by then we can be
      certain that no new GC requests will be added, short of what we
      do here */
@@ -1621,7 +1834,7 @@ void rtps_stop (struct q_globals *gv)
   ddsrt_mutex_destroy (&gv->privileged_pp_lock);
 }
 
-void rtps_fini (struct q_globals *gv)
+void rtps_fini (struct ddsi_domaingv *gv)
 {
   /* Shut down the GC system -- no new requests will be added */
   gcreq_queue_free (gv->gcreq_queue);
@@ -1640,6 +1853,10 @@ void rtps_fini (struct q_globals *gv)
   }
 #else
   nn_dqueue_free (gv->user_dqueue);
+#endif
+
+#ifdef DDSI_INCLUDE_SECURITY
+  q_omg_security_deinit (gv->security_context);
 #endif
 
   xeventq_free (gv->xevents);
@@ -1669,17 +1886,7 @@ void rtps_fini (struct q_globals *gv)
   ddsrt_thread_pool_free (gv->thread_pool);
 
   (void) joinleave_spdp_defmcip (gv, 0);
-
-  ddsi_conn_free (gv->disc_conn_mc);
-  if (gv->data_conn_mc != gv->disc_conn_mc)
-    ddsi_conn_free (gv->data_conn_mc);
-  if (gv->disc_conn_uc != gv->disc_conn_mc)
-    ddsi_conn_free (gv->disc_conn_uc);
-  if (gv->data_conn_uc != gv->disc_conn_uc)
-    ddsi_conn_free (gv->data_conn_uc);
-
-  /* Not freeing gv->tev_conn: it aliases data_conn_uc */
-
+  free_conns (gv);
   free_group_membership(gv->mship);
   ddsi_tran_factories_fini (gv);
 
@@ -1708,7 +1915,6 @@ void rtps_fini (struct q_globals *gv)
   }
 
   ddsi_tkmap_free (gv->m_tkmap);
-
   entity_index_free (gv->entity_index);
   gv->entity_index = NULL;
   deleted_participants_admin_free (gv->deleted_participants);
@@ -1717,17 +1923,33 @@ void rtps_fini (struct q_globals *gv)
   ddsrt_cond_destroy (&gv->participant_set_cond);
   free_special_topics (gv);
 
-  nn_xqos_fini (&gv->builtin_endpoint_xqos_wr);
-  nn_xqos_fini (&gv->builtin_endpoint_xqos_rd);
-  nn_xqos_fini (&gv->spdp_endpoint_xqos);
-  nn_xqos_fini (&gv->default_xqos_pub);
-  nn_xqos_fini (&gv->default_xqos_sub);
-  nn_xqos_fini (&gv->default_xqos_tp);
-  nn_xqos_fini (&gv->default_xqos_wr_nad);
-  nn_xqos_fini (&gv->default_xqos_wr);
-  nn_xqos_fini (&gv->default_xqos_rd);
-  nn_plist_fini (&gv->default_local_plist_pp);
-  nn_plist_fini (&gv->default_plist_pp);
+#ifndef NDEBUG
+  {
+    struct ddsrt_hh_iter it;
+    assert (ddsrt_hh_iter_first (gv->sertopics, &it) == NULL);
+  }
+#endif
+  ddsrt_hh_free (gv->sertopics);
+  ddsrt_mutex_destroy (&gv->sertopics_lock);
+
+#ifdef DDSI_INCLUDE_SECURITY
+  q_omg_security_free (gv);
+  ddsi_xqos_fini (&gv->builtin_stateless_xqos_wr);
+  ddsi_xqos_fini (&gv->builtin_stateless_xqos_rd);
+  ddsi_xqos_fini (&gv->builtin_volatile_xqos_wr);
+  ddsi_xqos_fini (&gv->builtin_volatile_xqos_rd);
+#endif
+  ddsi_xqos_fini (&gv->builtin_endpoint_xqos_wr);
+  ddsi_xqos_fini (&gv->builtin_endpoint_xqos_rd);
+  ddsi_xqos_fini (&gv->spdp_endpoint_xqos);
+  ddsi_xqos_fini (&gv->default_xqos_pub);
+  ddsi_xqos_fini (&gv->default_xqos_sub);
+  ddsi_xqos_fini (&gv->default_xqos_tp);
+  ddsi_xqos_fini (&gv->default_xqos_wr_nad);
+  ddsi_xqos_fini (&gv->default_xqos_wr);
+  ddsi_xqos_fini (&gv->default_xqos_rd);
+  ddsi_plist_fini (&gv->default_local_plist_pp);
+  ddsi_plist_fini (&gv->default_plist_pp);
 
   ddsrt_mutex_destroy (&gv->lock);
 

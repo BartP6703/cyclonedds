@@ -41,7 +41,6 @@ bool print_cputime (const struct CPUStats *s, const char *prefix, bool print_hos
   {
     char line[512];
     size_t pos = 0;
-    assert (is_fresh || !print_host);
     pos += (size_t) snprintf (line + pos, sizeof (line) - pos, "%s", prefix);
     if (!is_fresh)
       pos += (size_t) snprintf (line + pos, sizeof (line) - pos, " (stale)");
@@ -184,6 +183,11 @@ bool record_cputime (struct record_cputime_state *state, const char *prefix, dds
   return print_cputime (&state->s, prefix, false, true);
 }
 
+double record_cputime_read_rss (const struct record_cputime_state *state)
+{
+  return state->s.maxrss;
+}
+
 struct record_cputime_state *record_cputime_new (dds_entity_t wr)
 {
   ddsrt_thread_list_id_t tids[100];
@@ -249,6 +253,12 @@ bool record_cputime (struct record_cputime_state *state, const char *prefix, dds
   (void) state;
   (void) prefix;
   (void) tnow;
+}
+
+double record_cputime_read_rss (const struct record_cputime_state *state)
+{
+  (void) state;
+  return 0.0;
 }
 
 struct record_cputime_state *record_cputime_new (dds_entity_t wr)

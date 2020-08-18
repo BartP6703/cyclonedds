@@ -1,7 +1,7 @@
 # Eclipse Cyclone DDS
 
 Eclipse Cyclone DDS is a very performant and robust open-source DDS implementation.  Cyclone DDS is developed completely in the open as an Eclipse IoT project
-(see [eclipse-cyclone-dds](https://projects.eclipse.org/projects/iot.cyclonedds)).
+(see [eclipse-cyclone-dds](https://projects.eclipse.org/projects/iot.cyclonedds)) with a growing list of [adopters](https://iot.eclipse.org/adopters/?#iot.cyclonedds) (if you're one of them, please add your [logo](https://github.com/EclipseFdn/iot.eclipse.org/issues/new?template=adopter_request.md)).  It is a tier-1 middleware for the Robot Operating System [ROS 2](https://index.ros.org/doc/ros2/).
 
 * [Getting Started](#getting-started)
 * [Performance](#performance)
@@ -11,8 +11,7 @@ Eclipse Cyclone DDS is a very performant and robust open-source DDS implementati
 
 ## Building Eclipse Cyclone DDS
 
-In order to build Cyclone DDS you need a Linux, Mac or Windows 10 machine (or, with some caveats, an
-OpenIndiana one or a Solaris 2.6 one) with the following installed on your host:
+In order to build Cyclone DDS you need a Linux, Mac or Windows 10 machine (or, with some caveats, a *BSD, OpenIndiana or a Solaris 2.6 one) with the following installed on your host:
 
   * C compiler (most commonly GCC on Linux, Visual Studio on Windows, Xcode on macOS);
   * GIT version control system;
@@ -28,15 +27,15 @@ installed, and the rest should already be there.  On Windows, installing chocola
 install git cmake openjdk maven`` should get you a long way.  On macOS, ``brew install maven cmake``
 and downloading and installing the JDK is easiest.
 
-The Java-based components are the preprocessor and a configurator tool.  The run-time
+The only Java-based component is the IDL preprocessor.  The run-time
 libraries are pure C code, so there is no need to have Java available on "target"
 machines.  If desired, it is possible to do a build without Java or Maven installed by
 defining ``BUILD_IDLC=NO``, but that effectively only gets you the core library.  For the
-current [ROS2 RMW layer](https://github.com/ros2/rmw_cyclonedds), that is sufficient.
+current [ROS 2 RMW layer](https://github.com/ros2/rmw_cyclonedds), that is sufficient.
 
 To obtain Eclipse Cyclone DDS, do
 
-    $ git clone https://github.com/eclipse-cyclonedds/cyclonedds.git 
+    $ git clone https://github.com/eclipse-cyclonedds/cyclonedds.git
     $ cd cyclonedds
     $ mkdir build
 
@@ -66,7 +65,7 @@ generating build files.  For example, "Visual Studio 15 2017 Win64" would target
 using Visual Studio 2017.
 
 To install it after a successful build, do:
-    
+
     $ cmake --build . --target install
 
 which will copy everything to:
@@ -102,12 +101,22 @@ Such a build requires the presence of [CUnit](http://cunit.sourceforge.net/).  Y
 yourself, or you can choose to instead rely on the [Conan](https://conan.io) packaging system that
 the CI build infrastructure also uses.  In that case, install Conan and do:
 
-    $ conan install ..
+    $ conan install .. --build missing
 
-in the build directory prior to running cmake.  For Windows, depending on the generator, you might
-also need to add switches to select the architecture and build type, e.g., ``conan install -s
-arch=x86_64 -s build_type=Debug ..`` This will automatically download and/or build CUnit (and, at
-the moment, OpenSSL).
+in the build directory prior to running cmake.
+
+The CUnit Conan package is hosted in the
+[Bincrafters Bintray repository](https://bintray.com/bincrafters/public-conan). In case this repository
+was not added to your Conan remotes list yet (and the above mentioned install command failed because it
+could not find the CUnit package), you can add the Bintray repository by:
+
+    $ conan remote add <REMOTE> https://api.bintray.com/conan/bincrafters/public-conan
+
+Replace ``<REMOTE>`` with a name that identifies the repository (e.g. ``bincrafters``).
+
+For Windows, depending on the generator, you might also need to add switches to select the architecture
+and build type, e.g., ``conan install -s arch=x86_64 -s build_type=Debug ..`` This will automatically
+download and/or build CUnit (and, at the moment, OpenSSL).
 
 ## Documentation
 
@@ -128,14 +137,14 @@ to run the program, it is merely to illustrate the process.
     $ cd roundtrip
     $ cmake <install-location>/share/CycloneDDS/examples/roundtrip
     $ cmake --build .
-    
+
 On one terminal start the application that will be responding to pings:
 
     $ ./RoundtripPong
 
 On another terminal, start the application that will be sending the pings:
-    
-    $ ./RoundtripPing 0 0 0 
+
+    $ ./RoundtripPing 0 0 0
     # payloadSize: 0 | numSamples: 0 | timeOut: 0
     # Waiting for startup jitter to stabilise
     # Warm up complete.
@@ -175,7 +184,7 @@ the
 the
 [throughput](https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/assets/performance/20190730/sub.log) and
 [latency](https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/assets/performance/20190730/ping.log) data
-underlying the graphs.  These also include CPU usage ([thoughput](https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/assets/performance/20190730/throughput-async-listener-cpu.png) and [latency](https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/assets/performance/20190730/latency-sync-listener-bwcpu.png)) and [memory usage](https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/assets/performance/20190730/throughput-async-listener-memory.png).
+underlying the graphs.  These also include CPU usage ([throughput](https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/assets/performance/20190730/throughput-async-listener-cpu.png) and [latency](https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/assets/performance/20190730/latency-sync-listener-bwcpu.png)) and [memory usage](https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/assets/performance/20190730/throughput-async-listener-memory.png).
 
 # Configuration
 
@@ -240,3 +249,5 @@ Background information on configuring Cyclone DDS can be found
 * "Eclipse Cyclone DDS" and "Cyclone DDS" are trademarks of the Eclipse Foundation.
 
 * "DDS" is a trademark of the Object Management Group, Inc.
+
+* "ROS" is a trademark of Open Source Robotics Foundation, Inc.

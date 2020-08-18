@@ -13,6 +13,7 @@
 
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/sync.h"
+#include "dds/ddsrt/time.h"
 #include "dds/ddsrt/threads.h"
 #include "dds/ddsrt/hopscotch.h"
 
@@ -20,9 +21,8 @@
 #include "dds/ddsi/q_config.h"
 #include "dds/ddsi/q_log.h"
 #include "dds/ddsi/q_thread.h"
-#include "dds/ddsi/q_time.h"
 #include "dds/ddsi/q_unused.h"
-#include "dds/ddsi/q_globals.h" /* for mattr, cattr */
+#include "dds/ddsi/ddsi_domaingv.h" /* for mattr, cattr */
 #include "dds/ddsi/q_receive.h"
 
 struct alive_vt {
@@ -31,7 +31,7 @@ struct alive_vt {
 };
 
 struct threadmon_domain {
-  const struct q_globals *gv;
+  const struct ddsi_domaingv *gv;
   unsigned n_not_alive;
   size_t msgpos;
   char msg[2048];
@@ -51,7 +51,7 @@ struct ddsi_threadmon {
   struct ddsrt_hh *domains;
 };
 
-static struct threadmon_domain *find_domain (struct ddsi_threadmon *sl, const struct q_globals *gv)
+static struct threadmon_domain *find_domain (struct ddsi_threadmon *sl, const struct ddsi_domaingv *gv)
 {
   struct threadmon_domain dummy;
   dummy.gv = gv;
@@ -64,7 +64,7 @@ static uint32_t threadmon_thread (struct ddsi_threadmon *sl)
      reason why it has to be 100ms), regardless of the lease settings.
      Note: can't trust sl->self, may have been scheduled before the
      assignment. */
-  nn_mtime_t tlast = { 0 };
+  ddsrt_mtime_t tlast = { 0 };
   bool was_alive = true;
   for (uint32_t i = 0; i < thread_states.nthreads; i++)
   {
@@ -80,7 +80,7 @@ static uint32_t threadmon_thread (struct ddsi_threadmon *sl)
     /* Check progress only if enough time has passed: there is no
        guarantee that os_cond_timedwait wont ever return early, and we
        do want to avoid spurious warnings. */
-    nn_mtime_t tnow = now_mt ();
+    ddsrt_mtime_t tnow = ddsrt_time_monotonic ();
     if (tnow.v < tlast.v)
       continue;
 
@@ -101,7 +101,7 @@ static uint32_t threadmon_thread (struct ddsi_threadmon *sl)
 
       vtime_t vt = ddsrt_atomic_ld32 (&thread_states.ts[i].vtime);
       ddsrt_atomic_fence_ldld ();
-      struct q_globals const * const gv = ddsrt_atomic_ldvoidp (&thread_states.ts[i].gv);
+      struct ddsi_domaingv const * const gv = ddsrt_atomic_ldvoidp (&thread_states.ts[i].gv);
       struct threadmon_domain *tmdom = find_domain (sl, gv);
       if (tmdom == NULL)
         continue;
@@ -238,7 +238,7 @@ dds_return_t ddsi_threadmon_start (struct ddsi_threadmon *sl, const char *name)
   return DDS_RETCODE_ERROR;
 }
 
-void ddsi_threadmon_register_domain (struct ddsi_threadmon *sl, const struct q_globals *gv)
+void ddsi_threadmon_register_domain (struct ddsi_threadmon *sl, const struct ddsi_domaingv *gv)
 {
   if (gv->config.liveliness_monitoring)
   {
@@ -256,7 +256,7 @@ void ddsi_threadmon_register_domain (struct ddsi_threadmon *sl, const struct q_g
   }
 }
 
-void ddsi_threadmon_unregister_domain (struct ddsi_threadmon *sl, const struct q_globals *gv)
+void ddsi_threadmon_unregister_domain (struct ddsi_threadmon *sl, const struct ddsi_domaingv *gv)
 {
   if (gv->config.liveliness_monitoring)
   {

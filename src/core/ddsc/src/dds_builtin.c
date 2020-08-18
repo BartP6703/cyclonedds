@@ -15,8 +15,9 @@
 #include "dds/ddsi/q_entity.h"
 #include "dds/ddsi/q_thread.h"
 #include "dds/ddsi/q_config.h"
-#include "dds/ddsi/q_globals.h"
-#include "dds/ddsi/q_plist.h" /* for nn_keyhash */
+#include "dds/ddsi/q_bswap.h"
+#include "dds/ddsi/ddsi_domaingv.h"
+#include "dds/ddsi/ddsi_plist.h"
 #include "dds__init.h"
 #include "dds__domain.h"
 #include "dds__participant.h"
@@ -24,6 +25,7 @@
 #include "dds__builtin.h"
 #include "dds__entity.h"
 #include "dds__subscriber.h"
+#include "dds__topic.h"
 #include "dds__write.h"
 #include "dds__writer.h"
 #include "dds__whc_builtintopic.h"
@@ -76,7 +78,12 @@ dds_entity_t dds__get_builtin_topic (dds_entity_t entity, dds_entity_t topic)
   }
 
   dds_qos_t *qos = dds__create_builtin_qos ();
-  tp = dds_create_topic_arbitrary (par->m_entity.m_hdllink.hdl, sertopic, qos, NULL, NULL);
+  if ((tp = dds_create_topic_impl (par->m_entity.m_hdllink.hdl, &sertopic, qos, NULL, NULL)) > 0)
+  {
+    /* keep ownership for built-in sertopics because there are re-used, lifetime for these
+       sertopics is bound to domain */
+    ddsi_sertopic_ref (sertopic);
+  }
   dds_delete_qos (qos);
   dds_entity_unpin (e);
   return tp;
@@ -175,22 +182,25 @@ static struct ddsi_tkmap_instance *dds__builtin_get_tkmap_entry (const struct dd
   struct dds_domain *domain = vdomain;
   struct ddsi_tkmap_instance *tk;
   struct ddsi_serdata *sd;
-  struct nn_keyhash kh;
-  memcpy (&kh, guid, sizeof (kh));
-  /* any random builtin topic will do (provided it has a GUID for a key), because what matters is the "class" of the topic, not the actual topic; also, this is called early in the initialisation of the entity with this GUID, which simply causes serdata_from_keyhash to create a key-only serdata because the key lookup fails. */
-  sd = ddsi_serdata_from_keyhash (domain->builtin_participant_topic, &kh);
+  union { ddsi_guid_t guid; struct ddsi_keyhash keyhash; } x;
+  x.guid = nn_hton_guid (*guid);
+  /* any random builtin topic will do (provided it has a GUID for a key), because what matters is the "class"
+     of the topic, not the actual topic; also, this is called early in the initialisation of the entity with
+     this GUID, which simply causes serdata_from_keyhash to create a key-only serdata because the key lookup
+     fails. */
+  sd = ddsi_serdata_from_keyhash (domain->builtin_participant_topic, &x.keyhash);
   tk = ddsi_tkmap_find (domain->gv.m_tkmap, sd, true);
   ddsi_serdata_unref (sd);
   return tk;
 }
 
-struct ddsi_serdata *dds__builtin_make_sample (const struct entity_common *e, nn_wctime_t timestamp, bool alive)
+struct ddsi_serdata *dds__builtin_make_sample (const struct entity_common *e, ddsrt_wctime_t timestamp, bool alive)
 {
   /* initialize to avoid gcc warning ultimately caused by C's horrible type system */
   struct dds_domain *dom = e->gv->builtin_topic_interface->arg;
   struct ddsi_sertopic *topic = NULL;
   struct ddsi_serdata *serdata;
-  struct nn_keyhash keyhash;
+  union { ddsi_guid_t guid; struct ddsi_keyhash keyhash; } x;
   switch (e->kind)
   {
     case EK_PARTICIPANT:
@@ -207,14 +217,14 @@ struct ddsi_serdata *dds__builtin_make_sample (const struct entity_common *e, nn
       break;
   }
   assert (topic != NULL);
-  memcpy (&keyhash, &e->guid, sizeof (keyhash));
-  serdata = ddsi_serdata_from_keyhash (topic, &keyhash);
+  x.guid = nn_hton_guid (e->guid);
+  serdata = ddsi_serdata_from_keyhash (topic, &x.keyhash);
   serdata->timestamp = timestamp;
   serdata->statusinfo = alive ? 0 : NN_STATUSINFO_DISPOSE | NN_STATUSINFO_UNREGISTER;
   return serdata;
 }
 
-static void dds__builtin_write (const struct entity_common *e, nn_wctime_t timestamp, bool alive, void *vdomain)
+static void dds__builtin_write (const struct entity_common *e, ddsrt_wctime_t timestamp, bool alive, void *vdomain)
 {
   struct dds_domain *dom = vdomain;
   if (dds__builtin_is_visible (&e->guid, get_entity_vendorid (e), dom))
@@ -242,6 +252,13 @@ static void dds__builtin_write (const struct entity_common *e, nn_wctime_t times
   }
 }
 
+static void unref_builtin_topics (struct dds_domain *dom)
+{
+  ddsi_sertopic_unref (dom->builtin_participant_topic);
+  ddsi_sertopic_unref (dom->builtin_reader_topic);
+  ddsi_sertopic_unref (dom->builtin_writer_topic);
+}
+
 void dds__builtin_init (struct dds_domain *dom)
 {
   dds_qos_t *qos = dds__create_builtin_qos ();
@@ -253,9 +270,15 @@ void dds__builtin_init (struct dds_domain *dom)
   dom->btif.builtintopic_write = dds__builtin_write;
   dom->gv.builtin_topic_interface = &dom->btif;
 
-  dom->builtin_participant_topic = new_sertopic_builtintopic (DSBT_PARTICIPANT, "DCPSParticipant", "org::eclipse::cyclonedds::builtin::DCPSParticipant", &dom->gv);
-  dom->builtin_reader_topic = new_sertopic_builtintopic (DSBT_READER, "DCPSSubscription", "org::eclipse::cyclonedds::builtin::DCPSSubscription", &dom->gv);
-  dom->builtin_writer_topic = new_sertopic_builtintopic (DSBT_WRITER, "DCPSPublication", "org::eclipse::cyclonedds::builtin::DCPSPublication", &dom->gv);
+  dom->builtin_participant_topic = new_sertopic_builtintopic (DSBT_PARTICIPANT, "DCPSParticipant", "org::eclipse::cyclonedds::builtin::DCPSParticipant");
+  dom->builtin_reader_topic = new_sertopic_builtintopic (DSBT_READER, "DCPSSubscription", "org::eclipse::cyclonedds::builtin::DCPSSubscription");
+  dom->builtin_writer_topic = new_sertopic_builtintopic (DSBT_WRITER, "DCPSPublication", "org::eclipse::cyclonedds::builtin::DCPSPublication");
+
+  ddsrt_mutex_lock (&dom->gv.sertopics_lock);
+  ddsi_sertopic_register_locked (&dom->gv, dom->builtin_participant_topic);
+  ddsi_sertopic_register_locked (&dom->gv, dom->builtin_reader_topic);
+  ddsi_sertopic_register_locked (&dom->gv, dom->builtin_writer_topic);
+  ddsrt_mutex_unlock (&dom->gv.sertopics_lock);
 
   thread_state_awake (lookup_thread_state (), &dom->gv);
   const struct entity_index *gh = dom->gv.entity_index;
@@ -265,6 +288,11 @@ void dds__builtin_init (struct dds_domain *dom)
   thread_state_asleep (lookup_thread_state ());
 
   dds_delete_qos (qos);
+
+  /* ddsi_sertopic_init initializes the refcount to 1 and dds_sertopic_register_locked increments
+     it.  All "real" references (such as readers and writers) are also accounted for in the
+     reference count, so we have an excess reference here. */
+  unref_builtin_topics (dom);
 }
 
 void dds__builtin_fini (struct dds_domain *dom)
@@ -275,8 +303,5 @@ void dds__builtin_fini (struct dds_domain *dom)
   delete_local_orphan_writer (dom->builtintopic_writer_publications);
   delete_local_orphan_writer (dom->builtintopic_writer_subscriptions);
   thread_state_asleep (lookup_thread_state ());
-
-  ddsi_sertopic_unref (dom->builtin_participant_topic);
-  ddsi_sertopic_unref (dom->builtin_reader_topic);
-  ddsi_sertopic_unref (dom->builtin_writer_topic);
+  unref_builtin_topics (dom);
 }

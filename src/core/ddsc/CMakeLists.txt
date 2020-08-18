@@ -30,10 +30,10 @@ PREPEND(srcs_ddsc "${CMAKE_CURRENT_LIST_DIR}/src"
     dds_topic.c
     dds_listener.c
     dds_read.c
-    dds_stream.c
     dds_waitset.c
     dds_readcond.c
     dds_guardcond.c
+    dds_statistics.c
     dds_subscriber.c
     dds_write.c
     dds_whc.c
@@ -50,7 +50,9 @@ PREPEND(hdrs_public_ddsc "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include/dd
     ddsc/dds_public_qos.h
     ddsc/dds_public_qosdefs.h
     ddsc/dds_public_status.h
+    ddsc/dds_statistics.h
     ddsc/dds_rhc.h
+    ddsc/dds_internal_api.h
 )
 
 PREPEND(hdrs_private_ddsc "${CMAKE_CURRENT_LIST_DIR}/src"
@@ -69,7 +71,7 @@ PREPEND(hdrs_private_ddsc "${CMAKE_CURRENT_LIST_DIR}/src"
     dds__guardcond.h
     dds__reader.h
     dds__rhc_default.h
-    dds__stream.h
+    dds__statistics.h
     dds__subscriber.h
     dds__topic.h
     dds__types.h

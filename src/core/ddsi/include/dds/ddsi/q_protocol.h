@@ -17,7 +17,7 @@
 #include "dds/ddsi/q_feature_check.h"
 
 #include "dds/ddsi/q_rtps.h"
-#include "dds/ddsi/q_time.h"
+#include "dds/ddsi/ddsi_time.h"
 
 #if defined (__cplusplus)
 extern "C" {
@@ -55,12 +55,10 @@ typedef struct nn_fragment_number_set_header {
 #define NN_FRAGMENT_NUMBER_SET_MAX_BITS (256u)
 #define NN_FRAGMENT_NUMBER_SET_BITS_SIZE(numbits) ((unsigned) (4 * (((numbits) + 31) / 32)))
 #define NN_FRAGMENT_NUMBER_SET_SIZE(numbits) (sizeof (nn_fragment_number_set_header_t) + NN_FRAGMENT_NUMBER_SET_BITS_SIZE (numbits))
-typedef int32_t nn_count_t;
-#define DDSI_COUNT_MIN (-2147483647 - 1)
-#define DDSI_COUNT_MAX (2147483647)
-/* address field in locator maintained in network byte order, the rest
-   in host (yes: that's a FIXME)  */
+typedef uint32_t nn_count_t;
+/* address field in locator maintained in network byte order, the rest in host */
 typedef struct {
+  const struct ddsi_tran_factory *tran;
   int32_t kind;
   uint32_t port;
   unsigned char address[16];
@@ -89,13 +87,21 @@ typedef struct {
 #define NN_DISC_BUILTIN_ENDPOINT_TOPIC_ANNOUNCER (1u << 12)
 #define NN_DISC_BUILTIN_ENDPOINT_TOPIC_DETECTOR (1u << 13)
 
-/* PrismTech extensions: */
-#define NN_DISC_BUILTIN_ENDPOINT_CM_PARTICIPANT_WRITER (1u << 0)
-#define NN_DISC_BUILTIN_ENDPOINT_CM_PARTICIPANT_READER (1u << 1)
-#define NN_DISC_BUILTIN_ENDPOINT_CM_PUBLISHER_WRITER (1u << 2)
-#define NN_DISC_BUILTIN_ENDPOINT_CM_PUBLISHER_READER (1u << 3)
-#define NN_DISC_BUILTIN_ENDPOINT_CM_SUBSCRIBER_WRITER (1u << 4)
-#define NN_DISC_BUILTIN_ENDPOINT_CM_SUBSCRIBER_READER (1u << 5)
+/* Security extensions: */
+#define NN_BUILTIN_ENDPOINT_PUBLICATION_MESSAGE_SECURE_ANNOUNCER (1u<<16)
+#define NN_BUILTIN_ENDPOINT_PUBLICATION_MESSAGE_SECURE_DETECTOR (1u<<17)
+#define NN_BUILTIN_ENDPOINT_SUBSCRIPTION_MESSAGE_SECURE_ANNOUNCER (1u<<18)
+#define NN_BUILTIN_ENDPOINT_SUBSCRIPTION_MESSAGE_SECURE_DETECTOR (1u<<19)
+#define NN_BUILTIN_ENDPOINT_PARTICIPANT_MESSAGE_SECURE_ANNOUNCER (1u<<20)
+#define NN_BUILTIN_ENDPOINT_PARTICIPANT_MESSAGE_SECURE_DETECTOR (1u<<21)
+#define NN_BUILTIN_ENDPOINT_PARTICIPANT_STATELESS_MESSAGE_ANNOUNCER (1u<<22)
+#define NN_BUILTIN_ENDPOINT_PARTICIPANT_STATELESS_MESSAGE_DETECTOR (1u<<23)
+#define NN_BUILTIN_ENDPOINT_PARTICIPANT_VOLATILE_SECURE_ANNOUNCER (1u<<24)
+#define NN_BUILTIN_ENDPOINT_PARTICIPANT_VOLATILE_SECURE_DETECTOR (1u<<25)
+#define NN_DISC_BUILTIN_ENDPOINT_PARTICIPANT_SECURE_ANNOUNCER (1u << 26)
+#define NN_DISC_BUILTIN_ENDPOINT_PARTICIPANT_SECURE_DETECTOR (1u << 27)
+
+#define NN_BES_MASK_NON_SECURITY 0xf000ffffu
 
 #define NN_LOCATOR_KIND_INVALID -1
 #define NN_LOCATOR_KIND_RESERVED 0
@@ -149,10 +155,15 @@ typedef enum SubmessageKind {
   SMID_HEARTBEAT_FRAG = 0x13,
   SMID_DATA = 0x15,
   SMID_DATA_FRAG = 0x16,
+  /* security-specific sub messages */
+  SMID_SEC_BODY = 0x30,
+  SMID_SEC_PREFIX = 0x31,
+  SMID_SEC_POSTFIX = 0x32,
+  SMID_SRTPS_PREFIX = 0x33,
+  SMID_SRTPS_POSTFIX = 0x34,
   /* vendor-specific sub messages (0x80 .. 0xff) */
-  SMID_PT_INFO_CONTAINER = 0x80,
-  SMID_PT_MSG_LEN = 0x81,
-  SMID_PT_ENTITY_ID = 0x82
+  SMID_ADLINK_MSG_LEN = 0x81,
+  SMID_ADLINK_ENTITY_ID = 0x82
 } SubmessageKind_t;
 
 typedef struct InfoTimestamp {
@@ -190,7 +201,7 @@ typedef uint16_t nn_parameterid_t; /* spec says short */
 typedef struct nn_parameter {
   nn_parameterid_t parameterid;
   uint16_t length; /* spec says signed short */
-  /* char value[]; O! how I long for C99 */
+  /* char value[] */
 } nn_parameter_t;
 
 typedef struct Data_DataFrag_common {
@@ -236,7 +247,7 @@ typedef struct AckNack {
 DDSRT_WARNING_MSVC_ON(4200)
 #define ACKNACK_FLAG_FINAL 0x02u
 #define ACKNACK_SIZE(numbits) (offsetof (AckNack_t, bits) + NN_SEQUENCE_NUMBER_SET_BITS_SIZE (numbits) + 4)
-#define ACKNACK_SIZE_MAX ACKNACK_SIZE (256u)
+#define ACKNACK_SIZE_MAX ACKNACK_SIZE (NN_SEQUENCE_NUMBER_SET_MAX_BITS)
 
 DDSRT_WARNING_MSVC_OFF(4200)
 typedef struct Gap {
@@ -249,7 +260,7 @@ typedef struct Gap {
 } Gap_t;
 DDSRT_WARNING_MSVC_ON(4200)
 #define GAP_SIZE(numbits) (offsetof (Gap_t, bits) + NN_SEQUENCE_NUMBER_SET_BITS_SIZE (numbits))
-#define GAP_SIZE_MAX GAP_SIZE (256u)
+#define GAP_SIZE_MAX GAP_SIZE (NN_SEQUENCE_NUMBER_SET_MAX_BITS)
 
 typedef struct InfoTS {
   SubmessageHeader_t smhdr;
@@ -289,13 +300,7 @@ typedef struct NackFrag {
 } NackFrag_t;
 DDSRT_WARNING_MSVC_ON(4200)
 #define NACKFRAG_SIZE(numbits) (offsetof (NackFrag_t, bits) + NN_FRAGMENT_NUMBER_SET_BITS_SIZE (numbits) + 4)
-#define NACKFRAG_SIZE_MAX NACKFRAG_SIZE (256u)
-
-typedef struct PT_InfoContainer {
-  SubmessageHeader_t smhdr;
-  uint32_t id;
-} PT_InfoContainer_t;
-#define PTINFO_ID_ENCRYPT (0x01u)
+#define NACKFRAG_SIZE_MAX NACKFRAG_SIZE (NN_FRAGMENT_NUMBER_SET_MAX_BITS)
 
 typedef union Submessage {
   SubmessageHeader_t smhdr;
@@ -309,21 +314,12 @@ typedef union Submessage {
   HeartbeatFrag_t heartbeatfrag;
   Gap_t gap;
   NackFrag_t nackfrag;
-  PT_InfoContainer_t pt_infocontainer;
 } Submessage_t;
 
-DDSRT_WARNING_MSVC_OFF(4200)
-typedef struct ParticipantMessageData {
-  ddsi_guid_prefix_t participantGuidPrefix;
-  uint32_t kind; /* really 4 octets */
-  uint32_t length;
-  char value[];
-} ParticipantMessageData_t;
-DDSRT_WARNING_MSVC_ON(4200)
 #define PARTICIPANT_MESSAGE_DATA_KIND_UNKNOWN 0x0u
 #define PARTICIPANT_MESSAGE_DATA_KIND_AUTOMATIC_LIVELINESS_UPDATE 0x1u
 #define PARTICIPANT_MESSAGE_DATA_KIND_MANUAL_LIVELINESS_UPDATE 0x2u
-#define PARTICIPANT_MESSAGE_DATA_VENDER_SPECIFIC_KIND_FLAG 0x8000000u
+#define PARTICIPANT_MESSAGE_DATA_VENDOR_SPECIFIC_KIND_FLAG 0x8000000u
 
 #define PID_VENDORSPECIFIC_FLAG 0x8000u
 #define PID_UNRECOGNIZED_INCOMPATIBLE_FLAG 0x4000u
@@ -387,11 +383,15 @@ DDSRT_WARNING_MSVC_ON(4200)
 #define PID_COHERENT_SET                        0x56u
 #define PID_DIRECTED_WRITE                      0x57u
 #define PID_ORIGINAL_WRITER_INFO                0x61u
-#define PID_ENDPOINT_GUID                       0x5au /* !SPEC <=> PRISMTECH_ENDPOINT_GUID */
+#define PID_ENDPOINT_GUID                       0x5au /* !SPEC <=> ADLINK_ENDPOINT_GUID */
 
 /* Security related PID values. */
 #define PID_IDENTITY_TOKEN                      0x1001u
 #define PID_PERMISSIONS_TOKEN                   0x1002u
+#define PID_DATA_TAGS                           0x1003u
+#define PID_ENDPOINT_SECURITY_INFO              0x1004u
+#define PID_PARTICIPANT_SECURITY_INFO           0x1005u
+#define PID_IDENTITY_STATUS_TOKEN               0x1006u
 
 #ifdef DDSI_INCLUDE_SSM
 /* To indicate whether a reader favours the use of SSM.  Iff the
@@ -412,43 +412,44 @@ DDSRT_WARNING_MSVC_ON(4200)
 #define PID_RECV_QUEUE_SIZE                     0x18u
 #define PID_RELIABILITY_OFFERED                 0x19u
 
-#define PID_PRISMTECH_BUILTIN_ENDPOINT_SET      (PID_VENDORSPECIFIC_FLAG | 0x0u)
+#define PID_ADLINK_BUILTIN_ENDPOINT_SET         (PID_VENDORSPECIFIC_FLAG | 0x0u)
 
 /* parameter ids for READER_DATA_LIFECYCLE & WRITER_DATA_LIFECYCLE are
    undefined, but let's publish them anyway */
-#define PID_PRISMTECH_READER_DATA_LIFECYCLE     (PID_VENDORSPECIFIC_FLAG | 0x2u)
-#define PID_PRISMTECH_WRITER_DATA_LIFECYCLE     (PID_VENDORSPECIFIC_FLAG | 0x3u)
+#define PID_ADLINK_READER_DATA_LIFECYCLE        (PID_VENDORSPECIFIC_FLAG | 0x2u)
+#define PID_ADLINK_WRITER_DATA_LIFECYCLE        (PID_VENDORSPECIFIC_FLAG | 0x3u)
 
 /* ENDPOINT_GUID is formally undefined, so in strictly conforming
    mode, we use our own */
-#define PID_PRISMTECH_ENDPOINT_GUID             (PID_VENDORSPECIFIC_FLAG | 0x4u)
+#define PID_ADLINK_ENDPOINT_GUID                (PID_VENDORSPECIFIC_FLAG | 0x4u)
 
-#define PID_PRISMTECH_SYNCHRONOUS_ENDPOINT      (PID_VENDORSPECIFIC_FLAG | 0x5u)
+#define PID_ADLINK_SYNCHRONOUS_ENDPOINT         (PID_VENDORSPECIFIC_FLAG | 0x5u)
 
 /* Relaxed QoS matching readers/writers are best ignored by
    implementations that don't understand them.  This also covers "old"
    DDSI2's, although they may emit an error. */
-#define PID_PRISMTECH_RELAXED_QOS_MATCHING      (PID_VENDORSPECIFIC_FLAG | PID_UNRECOGNIZED_INCOMPATIBLE_FLAG | 0x6u)
+#define PID_ADLINK_RELAXED_QOS_MATCHING         (PID_VENDORSPECIFIC_FLAG | PID_UNRECOGNIZED_INCOMPATIBLE_FLAG | 0x6u)
 
-#define PID_PRISMTECH_PARTICIPANT_VERSION_INFO  (PID_VENDORSPECIFIC_FLAG | 0x7u)
+#define PID_ADLINK_PARTICIPANT_VERSION_INFO     (PID_VENDORSPECIFIC_FLAG | 0x7u)
 
-/* See CMTopics protocol.doc (2013-12-09) */
-#define PID_PRISMTECH_NODE_NAME                 (PID_VENDORSPECIFIC_FLAG | 0x8u)
-#define PID_PRISMTECH_EXEC_NAME                 (PID_VENDORSPECIFIC_FLAG | 0x9u)
-#define PID_PRISMTECH_PROCESS_ID                (PID_VENDORSPECIFIC_FLAG | 0xau)
-#define PID_PRISMTECH_SERVICE_TYPE              (PID_VENDORSPECIFIC_FLAG | 0xbu)
-#define PID_PRISMTECH_ENTITY_FACTORY            (PID_VENDORSPECIFIC_FLAG | 0xcu)
-#define PID_PRISMTECH_WATCHDOG_SCHEDULING       (PID_VENDORSPECIFIC_FLAG | 0xdu)
-#define PID_PRISMTECH_LISTENER_SCHEDULING       (PID_VENDORSPECIFIC_FLAG | 0xeu)
-#define PID_PRISMTECH_SUBSCRIPTION_KEYS         (PID_VENDORSPECIFIC_FLAG | 0xfu)
-#define PID_PRISMTECH_READER_LIFESPAN           (PID_VENDORSPECIFIC_FLAG | 0x10u)
-#define PID_PRISMTECH_TYPE_DESCRIPTION          (PID_VENDORSPECIFIC_FLAG | 0x12u)
-#define PID_PRISMTECH_LAN                       (PID_VENDORSPECIFIC_FLAG | 0x13u)
-#define PID_PRISMTECH_ENDPOINT_GID              (PID_VENDORSPECIFIC_FLAG | 0x14u)
-#define PID_PRISMTECH_GROUP_GID                 (PID_VENDORSPECIFIC_FLAG | 0x15u)
-#define PID_PRISMTECH_EOTINFO                   (PID_VENDORSPECIFIC_FLAG | 0x16u)
-#define PID_PRISMTECH_PART_CERT_NAME            (PID_VENDORSPECIFIC_FLAG | 0x17u);
-#define PID_PRISMTECH_LAN_CERT_NAME             (PID_VENDORSPECIFIC_FLAG | 0x18u);
+#define PID_ADLINK_NODE_NAME                    (PID_VENDORSPECIFIC_FLAG | 0x8u)
+#define PID_ADLINK_EXEC_NAME                    (PID_VENDORSPECIFIC_FLAG | 0x9u)
+#define PID_ADLINK_PROCESS_ID                   (PID_VENDORSPECIFIC_FLAG | 0xau)
+#define PID_ADLINK_SERVICE_TYPE                 (PID_VENDORSPECIFIC_FLAG | 0xbu)
+#define PID_ADLINK_ENTITY_FACTORY               (PID_VENDORSPECIFIC_FLAG | 0xcu)
+#define PID_ADLINK_WATCHDOG_SCHEDULING          (PID_VENDORSPECIFIC_FLAG | 0xdu)
+#define PID_ADLINK_LISTENER_SCHEDULING          (PID_VENDORSPECIFIC_FLAG | 0xeu)
+#define PID_ADLINK_SUBSCRIPTION_KEYS            (PID_VENDORSPECIFIC_FLAG | 0xfu)
+#define PID_ADLINK_READER_LIFESPAN              (PID_VENDORSPECIFIC_FLAG | 0x10u)
+#define PID_ADLINK_TYPE_DESCRIPTION             (PID_VENDORSPECIFIC_FLAG | 0x12u)
+#define PID_ADLINK_LAN                          (PID_VENDORSPECIFIC_FLAG | 0x13u)
+#define PID_ADLINK_ENDPOINT_GID                 (PID_VENDORSPECIFIC_FLAG | 0x14u)
+#define PID_ADLINK_GROUP_GID                    (PID_VENDORSPECIFIC_FLAG | 0x15u)
+#define PID_ADLINK_EOTINFO                      (PID_VENDORSPECIFIC_FLAG | 0x16u)
+#define PID_ADLINK_PART_CERT_NAME               (PID_VENDORSPECIFIC_FLAG | 0x17u)
+#define PID_ADLINK_LAN_CERT_NAME                (PID_VENDORSPECIFIC_FLAG | 0x18u)
+
+#define PID_CYCLONE_RECEIVE_BUFFER_SIZE         (PID_VENDORSPECIFIC_FLAG | 0x19u)
 
 #if defined (__cplusplus)
 }

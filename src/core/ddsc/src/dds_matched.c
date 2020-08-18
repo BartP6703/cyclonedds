@@ -15,7 +15,7 @@
 #include "dds/dds.h"
 #include "dds/version.h"
 #include "dds/ddsi/q_config.h"
-#include "dds/ddsi/q_globals.h"
+#include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/ddsi/q_entity.h"
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/q_thread.h"
@@ -135,7 +135,7 @@ static dds_builtintopic_endpoint_t *make_builtintopic_endpoint (const ddsi_guid_
   tmp = nn_hton_guid (*ppguid);
   memcpy (&ep->participant_key, &tmp, sizeof (ep->participant_key));
   ep->qos = dds_create_qos ();
-  nn_xqos_mergein_missing (ep->qos, qos, ~(QP_TOPIC_NAME | QP_TYPE_NAME));
+  ddsi_xqos_mergein_missing (ep->qos, qos, ~(QP_TOPIC_NAME | QP_TYPE_NAME));
   ep->topic_name = dds_string_dup (qos->topic_name);
   ep->type_name = dds_string_dup (qos->type_name);
   return ep;
@@ -144,8 +144,7 @@ static dds_builtintopic_endpoint_t *make_builtintopic_endpoint (const ddsi_guid_
 dds_builtintopic_endpoint_t *dds_get_matched_subscription_data (dds_entity_t writer, dds_instance_handle_t ih)
 {
   dds_writer *wr;
-  dds_return_t rc;
-  if ((rc = dds_writer_lock (writer, &wr)) != DDS_RETCODE_OK)
+  if (dds_writer_lock (writer, &wr))
     return NULL;
   else
   {
@@ -187,8 +186,7 @@ dds_builtintopic_endpoint_t *dds_get_matched_subscription_data (dds_entity_t wri
 dds_builtintopic_endpoint_t *dds_get_matched_publication_data (dds_entity_t reader, dds_instance_handle_t ih)
 {
   dds_reader *rd;
-  dds_return_t rc;
-  if ((rc = dds_reader_lock (reader, &rd)) != DDS_RETCODE_OK)
+  if (dds_reader_lock (reader, &rd))
     return NULL;
   else
   {

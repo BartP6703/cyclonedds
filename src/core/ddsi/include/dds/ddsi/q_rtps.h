@@ -12,6 +12,7 @@
 #ifndef NN_RTPS_H
 #define NN_RTPS_H
 
+#include "dds/export.h"
 #include "dds/ddsi/ddsi_vendor.h"
 #include "dds/ddsi/ddsi_guid.h"
 
@@ -44,12 +45,20 @@ typedef int64_t seqno_t;
 #define NN_ENTITYID_SPDP_BUILTIN_PARTICIPANT_READER 0x100c7
 #define NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_MESSAGE_WRITER 0x200c2
 #define NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_MESSAGE_READER 0x200c7
-#define NN_ENTITYID_SEDP_BUILTIN_CM_PARTICIPANT_WRITER 0x142
-#define NN_ENTITYID_SEDP_BUILTIN_CM_PARTICIPANT_READER 0x147
-#define NN_ENTITYID_SEDP_BUILTIN_CM_PUBLISHER_WRITER 0x242
-#define NN_ENTITYID_SEDP_BUILTIN_CM_PUBLISHER_READER 0x247
-#define NN_ENTITYID_SEDP_BUILTIN_CM_SUBSCRIBER_WRITER 0x342
-#define NN_ENTITYID_SEDP_BUILTIN_CM_SUBSCRIBER_READER 0x347
+
+#define NN_ENTITYID_SEDP_BUILTIN_PUBLICATIONS_SECURE_WRITER 0xff0003c2
+#define NN_ENTITYID_SEDP_BUILTIN_PUBLICATIONS_SECURE_READER 0xff0003c7
+#define NN_ENTITYID_SEDP_BUILTIN_SUBSCRIPTIONS_SECURE_WRITER 0xff0004c2
+#define NN_ENTITYID_SEDP_BUILTIN_SUBSCRIPTIONS_SECURE_READER 0xff0004c7
+#define NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_STATELESS_MESSAGE_WRITER 0x201c3
+#define NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_STATELESS_MESSAGE_READER 0x201c4
+#define NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_MESSAGE_SECURE_WRITER 0xff0200c2
+#define NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_MESSAGE_SECURE_READER 0xff0200c7
+#define NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_VOLATILE_SECURE_WRITER 0xff0202c3
+#define NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_VOLATILE_SECURE_READER 0xff0202c4
+#define NN_ENTITYID_SPDP_RELIABLE_BUILTIN_PARTICIPANT_SECURE_WRITER 0xff0101c2
+#define NN_ENTITYID_SPDP_RELIABLE_BUILTIN_PARTICIPANT_SECURE_READER 0xff0101c7
+
 #define NN_ENTITYID_SOURCE_MASK 0xc0
 #define NN_ENTITYID_SOURCE_USER 0x00
 #define NN_ENTITYID_SOURCE_BUILTIN 0xc0
@@ -59,18 +68,18 @@ typedef int64_t seqno_t;
 #define NN_ENTITYID_KIND_WRITER_NO_KEY 0x03
 #define NN_ENTITYID_KIND_READER_NO_KEY 0x04
 #define NN_ENTITYID_KIND_READER_WITH_KEY 0x07
-#define NN_ENTITYID_KIND_PRISMTECH_SUBSCRIBER 0x0a /* source = VENDOR */
-#define NN_ENTITYID_KIND_PRISMTECH_PUBLISHER 0x0b /* source = VENDOR */
 #define NN_ENTITYID_ALLOCSTEP 0x100
 
 struct cfgst;
-struct q_globals;
-int rtps_config_prep (struct q_globals *config, struct cfgst *cfgst);
-int rtps_config_open_trace (struct q_globals *config);
-int rtps_init (struct q_globals *config);
-int rtps_start (struct q_globals *config);
-void rtps_stop (struct q_globals *config);
-void rtps_fini (struct q_globals *config);
+struct ddsi_domaingv;
+int rtps_config_prep (struct ddsi_domaingv *gv, struct cfgst *cfgst);
+int rtps_config_open_trace (struct ddsi_domaingv *gv);
+int rtps_init (struct ddsi_domaingv *gv);
+int rtps_start (struct ddsi_domaingv *gv);
+void rtps_stop (struct ddsi_domaingv *gv);
+void rtps_fini (struct ddsi_domaingv *gv);
+
+DDS_EXPORT void ddsi_set_deafmute (struct ddsi_domaingv *gv, bool deaf, bool mute, int64_t reset_after);
 
 #if defined (__cplusplus)
 }

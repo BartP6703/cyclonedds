@@ -15,7 +15,7 @@
 #include "dds/dds.h"
 #include "RoundTrip.h"
 
-#include "test-common.h"
+#include "test_common.h"
 
 static dds_entity_t e[8];
 
@@ -80,21 +80,6 @@ CU_Test(ddsc_unsupported, dds_begin_end_coherent, .init = setup, .fini = teardow
         result = dds_begin_coherent(e[pars[i].index]);
         CU_ASSERT_EQUAL(result, pars[i].exp_res);
         result = dds_end_coherent(e[pars[i].index]);
-        CU_ASSERT_EQUAL(result, pars[i].exp_res);
-    }
-}
-
-CU_Test(ddsc_unsupported, dds_wait_for_acks, .init = setup, .fini = teardown)
-{
-    dds_return_t result;
-    static struct index_result pars[] = {
-        {PUB, DDS_RETCODE_UNSUPPORTED},
-        {WRI, DDS_RETCODE_UNSUPPORTED},
-        {BAD, DDS_RETCODE_BAD_PARAMETER}
-    };
-
-    for (size_t i=0; i < sizeof (pars) / sizeof (pars[0]);i++) {
-        result = dds_wait_for_acks(e[pars[i].index], 0);
         CU_ASSERT_EQUAL(result, pars[i].exp_res);
     }
 }

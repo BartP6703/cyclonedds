@@ -1,5 +1,5 @@
 #
-# Copyright(c) 2006 to 2019 ADLINK Technology Limited and others
+# Copyright(c) 2020 ADLINK Technology Limited and others
 #
 # This program and the accompanying materials are made available under the
 # terms of the Eclipse Public License v. 2.0 which is available at
@@ -8,43 +8,37 @@
 # http://www.eclipse.org/org/documents/edl-v10.php.
 #
 # SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
-include(FindPerl)
-if(PERL_FOUND)
-  add_custom_command(
-    OUTPUT
-      options.md cyclonedds.rnc
-    COMMAND
-      ${PERL_EXECUTABLE} -w "${CMAKE_CURRENT_SOURCE_DIR}/makernc.pl" "${CMAKE_CURRENT_SOURCE_DIR}/../src/core/ddsi/src/q_config.c" options.md cyclonedds.rnc
-    COMMAND
-      ${PERL_EXECUTABLE} -w "${CMAKE_CURRENT_SOURCE_DIR}/compare.pl" options.md "${CMAKE_CURRENT_SOURCE_DIR}/manual/options.md"
-    COMMAND
-      ${PERL_EXECUTABLE} -w "${CMAKE_CURRENT_SOURCE_DIR}/compare.pl" cyclonedds.rnc "${CMAKE_CURRENT_SOURCE_DIR}/../etc/cyclonedds.rnc"
-    DEPENDS
-      "${CMAKE_CURRENT_SOURCE_DIR}/makernc.pl"
-      "${CMAKE_CURRENT_SOURCE_DIR}/../src/core/ddsi/src/q_config.c")
-  add_custom_target(options_doc ALL DEPENDS "options.md" "cyclonedds.rnc")
+#
 
-  find_package(Java COMPONENTS Runtime)
-  if(JAVA_FOUND AND EXISTS "${TRANG_PATH}" OR EXISTS "$ENV{TRANG}")
-    if(NOT EXISTS "${TRANG_PATH}" AND EXISTS "$ENV{TRANG}")
-      message(STATUS "Setting TRANG_PATH to $ENV{TRANG}")
-      set(TRANG_PATH "$ENV{TRANG}" CACHE FILEPATH "Location of 'trang' for converting XML schemas" FORCE)
-    endif()
-    add_custom_command(
-      OUTPUT
-        cyclonedds.xsd
-      COMMAND
-        ${Java_JAVA_EXECUTABLE} -jar "${TRANG_PATH}" -I rnc -O xsd cyclonedds.rnc cyclonedds.xsd
-      COMMAND
-        ${PERL_EXECUTABLE} -w "${CMAKE_CURRENT_SOURCE_DIR}/compare.pl" cyclonedds.xsd "${CMAKE_CURRENT_SOURCE_DIR}/../etc/cyclonedds.xsd"
-      DEPENDS
-        "cyclonedds.rnc")
-    add_custom_target(options_xsd ALL DEPENDS "cyclonedds.xsd")
-  else()
-    message(STATUS "Java or not trang not found: not converting/checking RNC to XSD")
-  endif()
-else()
-  message(STATUS "perl not found: not generating/checking options documentation and RNC")
+# although the following files are generated, they are checked into source
+# control for convenience, but the user must copy them manually
+set(cyclonedds_rnc "${CMAKE_CURRENT_BINARY_DIR}/cyclonedds.rnc")
+set(cyclonedds_xsd "${CMAKE_CURRENT_BINARY_DIR}/cyclonedds.xsd")
+set(options_md "${CMAKE_CURRENT_BINARY_DIR}/manual/options.md")
+
+if(BUILD_SCHEMA OR BUILD_DOCS)
+  add_custom_command(
+    OUTPUT "${cyclonedds_rnc}" "${cyclonedds_xsd}" "${options_md}"
+    COMMAND ddsconf ARGS -f rnc -o "${cyclonedds_rnc}"
+    COMMAND ddsconf ARGS -f xsd -o "${cyclonedds_xsd}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory manual
+    COMMAND ddsconf ARGS -f md -o "${options_md}"
+    DEPENDS ddsconf)
+  add_custom_target(
+    schema ALL DEPENDS "${cyclonedds_rnc}" "${cyclonedds_xsd}" "${options_md}")
 endif()
 
-add_subdirectory(manual)
+if(BUILD_DOCS)
+  find_package(Sphinx REQUIRED breathe)
+  sphinx_add_docs(
+    docs
+    BREATHE_PROJECTS ddsc_api_docs
+    BUILDER html
+    SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/manual")
+  add_dependencies(docs schema)
+
+  install(
+    DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/docs"
+    DESTINATION "${CMAKE_INSTALL_DOCDIR}/manual"
+    COMPONENT dev)
+endif()

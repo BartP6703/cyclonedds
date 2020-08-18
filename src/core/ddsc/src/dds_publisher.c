@@ -15,10 +15,11 @@
 #include "dds__listener.h"
 #include "dds__participant.h"
 #include "dds__publisher.h"
+#include "dds__writer.h"
 #include "dds__qos.h"
 #include "dds/ddsi/ddsi_iid.h"
 #include "dds/ddsi/q_entity.h"
-#include "dds/ddsi/q_globals.h"
+#include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/version.h"
 
 DECL_ENTITY_LOCK_UNLOCK (extern inline, dds_publisher)
@@ -42,7 +43,9 @@ const struct dds_entity_deriver dds_entity_deriver_publisher = {
   .close = dds_entity_deriver_dummy_close,
   .delete = dds_entity_deriver_dummy_delete,
   .set_qos = dds_publisher_qos_set,
-  .validate_status = dds_publisher_status_validate
+  .validate_status = dds_publisher_status_validate,
+  .create_statistics = dds_entity_deriver_dummy_create_statistics,
+  .refresh_statistics = dds_entity_deriver_dummy_refresh_statistics
 };
 
 dds_entity_t dds__create_publisher_l (dds_participant *par, bool implicit, const dds_qos_t *qos, const dds_listener_t *listener)
@@ -54,9 +57,9 @@ dds_entity_t dds__create_publisher_l (dds_participant *par, bool implicit, const
 
   new_qos = dds_create_qos ();
   if (qos)
-    nn_xqos_mergein_missing (new_qos, qos, DDS_PUBLISHER_QOS_MASK);
-  nn_xqos_mergein_missing (new_qos, &par->m_entity.m_domain->gv.default_xqos_pub, ~(uint64_t)0);
-  if ((ret = nn_xqos_valid (&par->m_entity.m_domain->gv.logconfig, new_qos)) != DDS_RETCODE_OK)
+    ddsi_xqos_mergein_missing (new_qos, qos, DDS_PUBLISHER_QOS_MASK);
+  ddsi_xqos_mergein_missing (new_qos, &par->m_entity.m_domain->gv.default_xqos_pub, ~(uint64_t)0);
+  if ((ret = ddsi_xqos_valid (&par->m_entity.m_domain->gv.logconfig, new_qos)) != DDS_RETCODE_OK)
   {
     dds_participant_unlock (par);
     return ret;
@@ -94,10 +97,33 @@ dds_return_t dds_resume (dds_entity_t publisher)
 
 dds_return_t dds_wait_for_acks (dds_entity_t publisher_or_writer, dds_duration_t timeout)
 {
+  dds_return_t ret;
+  dds_entity *p_or_w_ent;
+
   if (timeout < 0)
     return DDS_RETCODE_BAD_PARAMETER;
-  static const dds_entity_kind_t kinds[] = { DDS_KIND_WRITER, DDS_KIND_PUBLISHER };
-  return dds_generic_unimplemented_operation_manykinds (publisher_or_writer, sizeof (kinds) / sizeof (kinds[0]), kinds);
+
+  if ((ret = dds_entity_pin (publisher_or_writer, &p_or_w_ent)) < 0)
+    return ret;
+
+  const dds_time_t tnow = dds_time ();
+  const dds_time_t abstimeout = (DDS_INFINITY - timeout <= tnow) ? DDS_NEVER : (tnow + timeout);
+  switch (dds_entity_kind (p_or_w_ent))
+  {
+    case DDS_KIND_PUBLISHER:
+      /* FIXME: wait_for_acks on all writers of the same publisher */
+      dds_entity_unpin (p_or_w_ent);
+      return DDS_RETCODE_UNSUPPORTED;
+
+    case DDS_KIND_WRITER:
+      ret = dds__writer_wait_for_acks ((struct dds_writer *) p_or_w_ent, NULL, abstimeout);
+      dds_entity_unpin (p_or_w_ent);
+      return ret;
+
+    default:
+      dds_entity_unpin (p_or_w_ent);
+      return DDS_RETCODE_ILLEGAL_OPERATION;
+  }
 }
 
 dds_return_t dds_publisher_begin_coherent (dds_entity_t publisher)

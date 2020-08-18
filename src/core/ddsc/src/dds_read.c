@@ -18,7 +18,7 @@
 #include "dds/ddsi/q_thread.h"
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/q_entity.h"
-#include "dds/ddsi/q_globals.h"
+#include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/ddsi/ddsi_sertopic.h"
 
 /*
@@ -40,7 +40,7 @@ static dds_return_t dds_read_impl (bool take, dds_entity_t reader_or_condition, 
 #define NC_FREE_BUF 2u
 #define NC_RESET_BUF 4u
 
-  if (buf == NULL || si == NULL || maxs == 0 || bufsz == 0 || bufsz < maxs)
+  if (buf == NULL || si == NULL || maxs == 0 || bufsz == 0 || bufsz < maxs || maxs > INT32_MAX)
     return DDS_RETCODE_BAD_PARAMETER;
 
   if ((ret = dds_entity_pin (reader_or_condition, &entity)) < 0) {
@@ -60,14 +60,6 @@ static dds_return_t dds_read_impl (bool take, dds_entity_t reader_or_condition, 
   }
 
   thread_state_awake (ts1, &entity->m_domain->gv);
-
-  if (hand != DDS_HANDLE_NIL)
-  {
-    if (ddsi_tkmap_find_by_id (entity->m_domain->gv.m_tkmap, hand) == NULL) {
-      ret = DDS_RETCODE_PRECONDITION_NOT_MET;
-      goto fail_awake_pinned;
-    }
-  }
 
   /* Allocate samples if not provided (assuming all or none provided) */
   if (buf[0] == NULL)
@@ -94,7 +86,6 @@ static dds_return_t dds_read_impl (bool take, dds_entity_t reader_or_condition, 
           rd->m_loan = buf[0];
           rd->m_loan_size = maxs;
         }
-        nodata_cleanups = NC_RESET_BUF;
       }
       else
       {
@@ -103,7 +94,7 @@ static dds_return_t dds_read_impl (bool take, dds_entity_t reader_or_condition, 
         rd->m_loan_size = maxs;
       }
       rd->m_loan_out = true;
-      nodata_cleanups |= NC_CLEAR_LOAN_OUT;
+      nodata_cleanups = NC_RESET_BUF | NC_CLEAR_LOAN_OUT;
     }
     ddsrt_mutex_unlock (&rd->m_entity.m_mutex);
   }
@@ -143,8 +134,6 @@ static dds_return_t dds_read_impl (bool take, dds_entity_t reader_or_condition, 
 #undef NC_FREE_BUF
 #undef NC_RESET_BUF
 
-fail_awake_pinned:
-  thread_state_asleep (ts1);
 fail_pinned:
   dds_entity_unpin (entity);
 fail:
@@ -158,12 +147,8 @@ static dds_return_t dds_readcdr_impl (bool take, dds_entity_t reader_or_conditio
   struct dds_reader *rd;
   struct dds_entity *entity;
 
-  assert (take);
-  assert (buf);
-  assert (si);
-  assert (hand == DDS_HANDLE_NIL);
-  assert (maxs > 0);
-  (void)take;
+  if (buf == NULL || si == NULL || maxs == 0 || maxs > INT32_MAX)
+    return DDS_RETCODE_BAD_PARAMETER;
 
   if ((ret = dds_entity_pin (reader_or_condition, &entity)) < 0) {
     return ret;
@@ -186,7 +171,11 @@ static dds_return_t dds_readcdr_impl (bool take, dds_entity_t reader_or_conditio
   assert (dds_entity_kind (rd->m_entity.m_parent) == DDS_KIND_SUBSCRIBER);
   dds_entity_status_reset (rd->m_entity.m_parent, DDS_DATA_ON_READERS_STATUS);
 
-  ret = dds_rhc_takecdr (rd->m_rhc, lock, buf, si, maxs, mask & DDS_ANY_SAMPLE_STATE, mask & DDS_ANY_VIEW_STATE, mask & DDS_ANY_INSTANCE_STATE, hand);
+  if (take)
+    ret = dds_rhc_takecdr (rd->m_rhc, lock, buf, si, maxs, mask & DDS_ANY_SAMPLE_STATE, mask & DDS_ANY_VIEW_STATE, mask & DDS_ANY_INSTANCE_STATE, hand);
+  else
+    ret = dds_rhc_readcdr (rd->m_rhc, lock, buf, si, maxs, mask & DDS_ANY_SAMPLE_STATE, mask & DDS_ANY_VIEW_STATE, mask & DDS_ANY_INSTANCE_STATE, hand);
+
   dds_entity_unpin (entity);
   thread_state_asleep (ts1);
   return ret;
@@ -240,6 +229,18 @@ dds_return_t dds_read_mask_wl (dds_entity_t rd_or_cnd, void **buf, dds_sample_in
   return dds_read_impl (false, rd_or_cnd, buf, maxs, maxs, si, mask, DDS_HANDLE_NIL, lock, false);
 }
 
+dds_return_t dds_readcdr (dds_entity_t rd_or_cnd, struct ddsi_serdata **buf, uint32_t maxs, dds_sample_info_t *si, uint32_t mask)
+{
+  bool lock = true;
+  if (maxs == DDS_READ_WITHOUT_LOCK)
+  {
+    lock = false;
+    /* FIXME: Fix the interface. */
+    maxs = 100;
+  }
+  return dds_readcdr_impl (false, rd_or_cnd, buf, maxs, si, mask, DDS_HANDLE_NIL, lock);
+}
+
 dds_return_t dds_read_instance (dds_entity_t rd_or_cnd, void **buf, dds_sample_info_t *si, size_t bufsz, uint32_t maxs, dds_instance_handle_t handle)
 {
   bool lock = true;
@@ -283,7 +284,7 @@ dds_return_t dds_read_instance_mask (dds_entity_t rd_or_cnd, void **buf, dds_sam
   {
     lock = false;
     /* FIXME: Fix the interface. */
-    maxs = 100;
+    maxs = (uint32_t)bufsz;
   }
   return dds_read_impl (false, rd_or_cnd, buf, bufsz, maxs, si, mask, handle, lock, false);
 }
@@ -422,7 +423,7 @@ dds_return_t dds_take_instance_mask (dds_entity_t rd_or_cnd, void **buf, dds_sam
   {
     lock = false;
     /* FIXME: Fix the interface. */
-    maxs = 100;
+    maxs = (uint32_t)bufsz;
   }
   return dds_read_impl(true, rd_or_cnd, buf, bufsz, maxs, si, mask, handle, lock, false);
 }
@@ -457,12 +458,11 @@ dds_return_t dds_take_next_wl (dds_entity_t reader, void **buf, dds_sample_info_
 
 dds_return_t dds_return_loan (dds_entity_t reader_or_condition, void **buf, int32_t bufsz)
 {
-  const struct ddsi_sertopic *st;
   dds_reader *rd;
   dds_entity *entity;
-  dds_return_t ret = DDS_RETCODE_OK;
+  dds_return_t ret;
 
-  if (buf == NULL || (*buf == NULL && bufsz > 0))
+  if (buf == NULL || (buf[0] == NULL && bufsz > 0) || (buf[0] != NULL && bufsz <= 0))
     return DDS_RETCODE_BAD_PARAMETER;
 
   if ((ret = dds_entity_pin (reader_or_condition, &entity)) < 0) {
@@ -476,16 +476,46 @@ dds_return_t dds_return_loan (dds_entity_t reader_or_condition, void **buf, int3
     rd = (dds_reader *) entity->m_parent;
   }
 
-  st = rd->m_topic->m_stopic;
-  for (int32_t i = 0; i < bufsz; i++)
-    ddsi_sertopic_free_sample (st, buf[i], DDS_FREE_CONTENTS);
-
-  /* If possible return loan buffer to reader */
-  ddsrt_mutex_lock (&rd->m_entity.m_mutex);
-  if (rd->m_loan != 0 && (buf[0] == rd->m_loan))
+  if (bufsz <= 0)
   {
-    rd->m_loan_out = false;
+    /* No data whatsoever, or an invocation following a failed read/take call.  Read/take
+       already take care of restoring the state prior to their invocation if they return
+       no data.  Return late so invalid handles can be detected. */
+    dds_entity_unpin (entity);
+    return DDS_RETCODE_OK;
+  }
+  assert (buf[0] != NULL);
+
+  const struct ddsi_sertopic *st = rd->m_topic->m_stopic;
+
+  /* The potentially time consuming part of what happens here (freeing samples)
+     can safely be done without holding the reader lock, but that particular
+     lock is not used during insertion of data & triggering waitsets (that's
+     the observer_lock), so holding it for a bit longer in return for simpler
+     code is a fair trade-off. */
+  ddsrt_mutex_lock (&rd->m_entity.m_mutex);
+  if (buf[0] != rd->m_loan)
+  {
+    /* Not so much a loan as a buffer allocated by the middleware on behalf of the
+       application.  So it really is no more than a sophisticated variant of "free". */
+    ddsi_sertopic_free_samples (st, buf, (size_t) bufsz, DDS_FREE_ALL);
+    buf[0] = NULL;
+  }
+  else if (!rd->m_loan_out)
+  {
+    /* Trying to return a loan that has been returned already */
+    ddsrt_mutex_unlock (&rd->m_entity.m_mutex);
+    dds_entity_unpin (entity);
+    return DDS_RETCODE_PRECONDITION_NOT_MET;
+  }
+  else
+  {
+    /* Free only the memory referenced from the samples, not the samples themselves.
+       Zero them to guarantee the absence of dangling pointers that might cause
+       trouble on a following operation.  FIXME: there's got to be a better way */
+    ddsi_sertopic_free_samples (st, buf, (size_t) bufsz, DDS_FREE_CONTENTS);
     ddsi_sertopic_zero_samples (st, rd->m_loan, rd->m_loan_size);
+    rd->m_loan_out = false;
     buf[0] = NULL;
   }
   ddsrt_mutex_unlock (&rd->m_entity.m_mutex);

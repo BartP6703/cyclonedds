@@ -15,7 +15,7 @@
 #include "dds/dds.h"
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/string.h"
-#include "dds/ddsi/q_plist.h"
+#include "dds/ddsi/ddsi_plist.h"
 
 static void dds_qos_data_copy_in (ddsi_octetseq_t *data, const void * __restrict value, size_t sz, bool overwrite)
 {
@@ -51,7 +51,7 @@ static bool dds_qos_data_copy_out (const ddsi_octetseq_t *data, void **value, si
 dds_qos_t *dds_create_qos (void)
 {
   dds_qos_t *qos = ddsrt_malloc (sizeof (dds_qos_t));
-  nn_xqos_init_empty (qos);
+  ddsi_xqos_init_empty (qos);
   return qos;
 }
 
@@ -64,8 +64,8 @@ void dds_reset_qos (dds_qos_t * __restrict qos)
 {
   if (qos)
   {
-    nn_xqos_fini (qos);
-    nn_xqos_init_empty (qos);
+    ddsi_xqos_fini (qos);
+    ddsi_xqos_init_empty (qos);
   }
 }
 
@@ -78,7 +78,7 @@ void dds_delete_qos (dds_qos_t * __restrict qos)
 {
   if (qos)
   {
-    nn_xqos_fini (qos);
+    ddsi_xqos_fini (qos);
     ddsrt_free (qos);
   }
 }
@@ -92,7 +92,7 @@ dds_return_t dds_copy_qos (dds_qos_t * __restrict dst, const dds_qos_t * __restr
 {
   if (src == NULL || dst == NULL)
     return DDS_RETCODE_BAD_PARAMETER;
-  nn_xqos_copy (dst, src);
+  ddsi_xqos_copy (dst, src);
   return DDS_RETCODE_OK;
 }
 
@@ -105,7 +105,7 @@ void dds_merge_qos (dds_qos_t * __restrict dst, const dds_qos_t * __restrict src
 {
   /* Copy qos from source to destination unless already set */
   if (src != NULL && dst != NULL)
-    nn_xqos_mergein_missing (dst, src, ~(uint64_t)0);
+    ddsi_xqos_mergein_missing (dst, src, ~(uint64_t)0);
 }
 
 void dds_qos_merge (dds_qos_t * __restrict dst, const dds_qos_t * __restrict src)
@@ -121,7 +121,7 @@ bool dds_qos_equal (const dds_qos_t * __restrict a, const dds_qos_t * __restrict
   else if (a == NULL || b == NULL)
     return false;
   else
-    return nn_xqos_delta (a, b, ~(uint64_t)0) == 0;
+    return ddsi_xqos_delta (a, b, ~(uint64_t)0) == 0;
 }
 
 void dds_qset_userdata (dds_qos_t * __restrict qos, const void * __restrict value, size_t sz)
@@ -302,7 +302,7 @@ void dds_qset_writer_data_lifecycle (dds_qos_t * __restrict qos, bool autodispos
   if (qos == NULL)
     return;
   qos->writer_data_lifecycle.autodispose_unregistered_instances = autodispose;
-  qos->present |= QP_PRISMTECH_WRITER_DATA_LIFECYCLE;
+  qos->present |= QP_ADLINK_WRITER_DATA_LIFECYCLE;
 }
 
 void dds_qset_reader_data_lifecycle (dds_qos_t * __restrict qos, dds_duration_t autopurge_nowriter_samples_delay, dds_duration_t autopurge_disposed_samples_delay)
@@ -311,7 +311,7 @@ void dds_qset_reader_data_lifecycle (dds_qos_t * __restrict qos, dds_duration_t 
     return;
   qos->reader_data_lifecycle.autopurge_nowriter_samples_delay = autopurge_nowriter_samples_delay;
   qos->reader_data_lifecycle.autopurge_disposed_samples_delay = autopurge_disposed_samples_delay;
-  qos->present |= QP_PRISMTECH_READER_DATA_LIFECYCLE;
+  qos->present |= QP_ADLINK_READER_DATA_LIFECYCLE;
 }
 
 void dds_qset_durability_service (dds_qos_t * __restrict qos, dds_duration_t service_cleanup_delay, dds_history_kind_t history_kind, int32_t history_depth, int32_t max_samples, int32_t max_instances, int32_t max_samples_per_instance)
@@ -333,6 +333,112 @@ void dds_qset_ignorelocal (dds_qos_t * __restrict qos, dds_ignorelocal_kind_t ig
     return;
   qos->ignorelocal.value = ignore;
   qos->present |= QP_CYCLONE_IGNORELOCAL;
+}
+
+static void dds_qprop_init (dds_qos_t * qos)
+{
+  if (!(qos->present & QP_PROPERTY_LIST))
+  {
+    qos->property.value.n = 0;
+    qos->property.value.props = NULL;
+    qos->property.binary_value.n = 0;
+    qos->property.binary_value.props = NULL;
+    qos->present |= QP_PROPERTY_LIST;
+  }
+}
+
+#define DDS_QPROP_GET_INDEX(prop_type_, prop_field_) \
+static bool dds_q##prop_type_##_get_index (const dds_qos_t * qos, const char * name, uint32_t * index) \
+{ \
+  if (qos == NULL || name == NULL || index == NULL || !(qos->present & QP_PROPERTY_LIST)) \
+    return false; \
+  for (uint32_t i = 0; i < qos->property.prop_field_.n; i++) \
+  { \
+    if (strcmp (qos->property.prop_field_.props[i].name, name) == 0) \
+    { \
+      *index = i; \
+      return true; \
+    } \
+  } \
+  return false; \
+}
+DDS_QPROP_GET_INDEX (prop, value)
+DDS_QPROP_GET_INDEX (bprop, binary_value)
+
+#define DDS_QUNSET_PROP(prop_type_, prop_field_, value_field_) \
+void dds_qunset_##prop_type_ (dds_qos_t * __restrict qos, const char * name) \
+{ \
+  uint32_t i; \
+  if (qos == NULL || !(qos->present & QP_PROPERTY_LIST) || qos->property.prop_field_.n == 0 || name == NULL) \
+    return; \
+  if (dds_q##prop_type_##_get_index (qos, name, &i)) \
+  { \
+    dds_free (qos->property.prop_field_.props[i].name); \
+    dds_free (qos->property.prop_field_.props[i].value_field_); \
+    if (qos->property.prop_field_.n > 1) \
+    { \
+      if (i < (qos->property.prop_field_.n - 1)) \
+        memmove (qos->property.prop_field_.props + i, qos->property.prop_field_.props + i + 1, \
+          (qos->property.prop_field_.n - i - 1) * sizeof (*qos->property.prop_field_.props)); \
+      qos->property.prop_field_.props = dds_realloc (qos->property.prop_field_.props, \
+        (qos->property.prop_field_.n - 1) * sizeof (*qos->property.prop_field_.props)); \
+    } \
+    else \
+    { \
+      dds_free (qos->property.prop_field_.props); \
+      qos->property.prop_field_.props = NULL; \
+    } \
+    qos->property.prop_field_.n--; \
+  } \
+}
+DDS_QUNSET_PROP (prop, value, value)
+DDS_QUNSET_PROP (bprop, binary_value, value.value)
+
+void dds_qset_prop (dds_qos_t * __restrict qos, const char * name, const char * value)
+{
+  uint32_t i;
+  if (qos == NULL || name == NULL || value == NULL)
+    return;
+
+  dds_qprop_init (qos);
+  if (dds_qprop_get_index (qos, name, &i))
+  {
+    assert (&qos->property.value.props[i] != NULL); /* for Clang static analyzer */
+    dds_free (qos->property.value.props[i].value);
+    qos->property.value.props[i].value = dds_string_dup (value);
+  }
+  else
+  {
+    qos->property.value.props = dds_realloc (qos->property.value.props,
+      (qos->property.value.n + 1) * sizeof (*qos->property.value.props));
+    qos->property.value.props[qos->property.value.n].propagate = 0;
+    qos->property.value.props[qos->property.value.n].name = dds_string_dup (name);
+    qos->property.value.props[qos->property.value.n].value = dds_string_dup (value);
+    qos->property.value.n++;
+  }
+}
+
+void dds_qset_bprop (dds_qos_t * __restrict qos, const char * name, const void * value, const size_t sz)
+{
+  uint32_t i;
+  if (qos == NULL || name == NULL || (value == NULL && sz > 0))
+    return;
+
+  dds_qprop_init (qos);
+  if (dds_qbprop_get_index (qos, name, &i))
+  {
+    assert (&qos->property.binary_value.props[i].value != NULL); /* for Clang static analyzer */
+    dds_qos_data_copy_in (&qos->property.binary_value.props[i].value, value, sz, true);
+  }
+  else
+  {
+    qos->property.binary_value.props = dds_realloc (qos->property.binary_value.props,
+      (qos->property.binary_value.n + 1) * sizeof (*qos->property.binary_value.props));
+    qos->property.binary_value.props[qos->property.binary_value.n].propagate = 0;
+    qos->property.binary_value.props[qos->property.binary_value.n].name = dds_string_dup (name);
+    dds_qos_data_copy_in (&qos->property.binary_value.props[qos->property.binary_value.n].value, value, sz, false);
+    qos->property.binary_value.n++;
+  }
 }
 
 bool dds_qget_userdata (const dds_qos_t * __restrict qos, void **value, size_t *sz)
@@ -520,7 +626,7 @@ bool dds_qget_destination_order (const dds_qos_t * __restrict qos, dds_destinati
 
 bool dds_qget_writer_data_lifecycle (const dds_qos_t * __restrict qos, bool *autodispose)
 {
-  if (qos == NULL || !(qos->present & QP_PRISMTECH_WRITER_DATA_LIFECYCLE))
+  if (qos == NULL || !(qos->present & QP_ADLINK_WRITER_DATA_LIFECYCLE))
     return false;
   if (autodispose)
     *autodispose = qos->writer_data_lifecycle.autodispose_unregistered_instances;
@@ -529,7 +635,7 @@ bool dds_qget_writer_data_lifecycle (const dds_qos_t * __restrict qos, bool *aut
 
 bool dds_qget_reader_data_lifecycle (const dds_qos_t * __restrict qos, dds_duration_t *autopurge_nowriter_samples_delay, dds_duration_t *autopurge_disposed_samples_delay)
 {
-  if (qos == NULL || !(qos->present & QP_PRISMTECH_READER_DATA_LIFECYCLE))
+  if (qos == NULL || !(qos->present & QP_ADLINK_READER_DATA_LIFECYCLE))
     return false;
   if (autopurge_nowriter_samples_delay)
     *autopurge_nowriter_samples_delay = qos->reader_data_lifecycle.autopurge_nowriter_samples_delay;
@@ -564,4 +670,67 @@ bool dds_qget_ignorelocal (const dds_qos_t * __restrict qos, dds_ignorelocal_kin
   if (ignore)
     *ignore = qos->ignorelocal.value;
   return true;
+}
+
+#define DDS_QGET_PROPNAMES(prop_type_, prop_field_) \
+bool dds_qget_##prop_type_##names (const dds_qos_t * __restrict qos, uint32_t * n, char *** names) \
+{ \
+  bool props; \
+  if (qos == NULL || (n == NULL && names == NULL)) \
+    return false; \
+  props = (qos->present & QP_PROPERTY_LIST) && qos->property.prop_field_.n > 0; \
+  if (n != NULL) \
+    *n = props ? qos->property.prop_field_.n : 0; \
+  if (names != NULL) \
+  { \
+    if (!props) \
+      *names = NULL; \
+    else \
+    { \
+      *names = dds_alloc (sizeof (char *) * qos->property.prop_field_.n); \
+      for (uint32_t i = 0; i < qos->property.prop_field_.n; i++) \
+        (*names)[i] = dds_string_dup (qos->property.prop_field_.props[i].name); \
+    } \
+  } \
+  return props; \
+}
+DDS_QGET_PROPNAMES (prop, value)
+DDS_QGET_PROPNAMES (bprop, binary_value)
+
+bool dds_qget_prop (const dds_qos_t * __restrict qos, const char * name, char ** value)
+{
+  uint32_t i;
+  bool found;
+
+  if (qos == NULL || name == NULL)
+    return false;
+
+  found = dds_qprop_get_index (qos, name, &i);
+  if (value != NULL)
+    *value = found ? dds_string_dup (qos->property.value.props[i].value) : NULL;
+  return found;
+}
+
+bool dds_qget_bprop (const dds_qos_t * __restrict qos, const char * name, void ** value, size_t * sz)
+{
+  uint32_t i;
+  bool found;
+
+  if (qos == NULL || name == NULL || (sz == NULL && value != NULL))
+    return false;
+
+  found = dds_qbprop_get_index (qos, name, &i);
+  if (found)
+  {
+    if (value != NULL || sz != NULL)
+      dds_qos_data_copy_out (&qos->property.binary_value.props[i].value, value, sz);
+  }
+  else
+  {
+    if (value != NULL)
+      *value = NULL;
+    if (sz != NULL)
+      *sz = 0;
+  }
+  return found;
 }

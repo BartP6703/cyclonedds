@@ -24,7 +24,7 @@
 #include "dds/ddsi/q_misc.h"
 #include "dds/ddsi/q_config.h"
 #include "dds/ddsi/q_log.h"
-#include "dds/ddsi/q_plist.h"
+#include "dds/ddsi/ddsi_plist.h"
 #include "dds/ddsi/q_unused.h"
 #include "dds/ddsi/q_xevent.h"
 #include "dds/ddsi/q_addrset.h"
@@ -32,7 +32,7 @@
 #include "dds/ddsi/q_radmin.h"
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/q_entity.h"
-#include "dds/ddsi/q_globals.h"
+#include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/ddsi/q_xmsg.h"
 #include "dds/ddsi/q_bswap.h"
 #include "dds/ddsi/q_transmit.h"
@@ -64,19 +64,19 @@ int compare_lease_tdur (const void *va, const void *vb)
   return (a->tdur == b->tdur) ? 0 : (a->tdur < b->tdur) ? -1 : 1;
 }
 
-void lease_management_init (struct q_globals *gv)
+void lease_management_init (struct ddsi_domaingv *gv)
 {
   ddsrt_mutex_init (&gv->leaseheap_lock);
   ddsrt_fibheap_init (&lease_fhdef, &gv->leaseheap);
 }
 
-void lease_management_term (struct q_globals *gv)
+void lease_management_term (struct ddsi_domaingv *gv)
 {
   assert (ddsrt_fibheap_min (&lease_fhdef, &gv->leaseheap) == NULL);
   ddsrt_mutex_destroy (&gv->leaseheap_lock);
 }
 
-struct lease *lease_new (nn_etime_t texpire, dds_duration_t tdur, struct entity_common *e)
+struct lease *lease_new (ddsrt_etime_t texpire, dds_duration_t tdur, struct entity_common *e)
 {
   struct lease *l;
   if ((l = ddsrt_malloc (sizeof (*l))) == NULL)
@@ -96,7 +96,7 @@ struct lease *lease_new (nn_etime_t texpire, dds_duration_t tdur, struct entity_
  */
 struct lease *lease_clone (const struct lease *l)
 {
-  nn_etime_t texp;
+  ddsrt_etime_t texp;
   dds_duration_t tdur;
   texp.v = (int64_t) ddsrt_atomic_ld64 (&l->tend);
   tdur = l->tdur;
@@ -105,12 +105,12 @@ struct lease *lease_clone (const struct lease *l)
 
 void lease_register (struct lease *l) /* FIXME: make lease admin struct */
 {
-  struct q_globals * const gv = l->entity->gv;
+  struct ddsi_domaingv * const gv = l->entity->gv;
   GVTRACE ("lease_register(l %p guid "PGUIDFMT")\n", (void *) l, PGUID (l->entity->guid));
   ddsrt_mutex_lock (&gv->leaseheap_lock);
   assert (l->tsched.v == TSCHED_NOT_ON_HEAP);
   int64_t tend = (int64_t) ddsrt_atomic_ld64 (&l->tend);
-  if (tend != T_NEVER)
+  if (tend != DDS_NEVER)
   {
     l->tsched.v = tend;
     ddsrt_fibheap_insert (&lease_fhdef, &gv->leaseheap, l);
@@ -123,7 +123,7 @@ void lease_register (struct lease *l) /* FIXME: make lease admin struct */
 
 void lease_unregister (struct lease *l)
 {
-  struct q_globals * const gv = l->entity->gv;
+  struct ddsi_domaingv * const gv = l->entity->gv;
   GVTRACE ("lease_unregister(l %p guid "PGUIDFMT")\n", (void *) l, PGUID (l->entity->guid));
   ddsrt_mutex_lock (&gv->leaseheap_lock);
   if (l->tsched.v != TSCHED_NOT_ON_HEAP)
@@ -139,14 +139,30 @@ void lease_unregister (struct lease *l)
 
 void lease_free (struct lease *l)
 {
-  struct q_globals * const gv = l->entity->gv;
+  struct ddsi_domaingv * const gv = l->entity->gv;
   GVTRACE ("lease_free(l %p guid "PGUIDFMT")\n", (void *) l, PGUID (l->entity->guid));
   ddsrt_free (l);
 }
 
-void lease_renew (struct lease *l, nn_etime_t tnowE)
+static void trace_lease_renew (const struct lease *l, const char *tag, ddsrt_etime_t tend_new)
 {
-  nn_etime_t tend_new = add_duration_to_etime (tnowE, l->tdur);
+  struct ddsi_domaingv const * gv = l->entity->gv;
+  if (gv->logconfig.c.mask & DDS_LC_TRACE)
+  {
+    int32_t tsec, tusec;
+    GVTRACE (" L(%s", tag);
+    if (l->entity->guid.entityid.u == NN_ENTITYID_PARTICIPANT)
+      GVTRACE (":%"PRIx32, l->entity->guid.entityid.u);
+    else
+      GVTRACE (""PGUIDFMT"", PGUID (l->entity->guid));
+    ddsrt_etime_to_sec_usec (&tsec, &tusec, tend_new);
+    GVTRACE (" %"PRId32".%06"PRId32")", tsec, tusec);
+  }
+}
+
+void lease_renew (struct lease *l, ddsrt_etime_t tnowE)
+{
+  ddsrt_etime_t tend_new = ddsrt_etime_add_duration (tnowE, l->tdur);
 
   /* do not touch tend if moving forward or if already expired */
   int64_t tend;
@@ -159,24 +175,13 @@ void lease_renew (struct lease *l, nn_etime_t tnowE)
   /* Only at this point we can assume that gv can be recovered from the entity in the
    * lease (i.e. the entity still exists). In cases where dereferencing l->entity->gv
    * is not safe (e.g. the deletion of entities), the early out in the loop above
-   * will be the case because tend is set to T_NEVER. */
-  struct q_globals const * gv = l->entity->gv;
-  if (gv->logconfig.c.mask & DDS_LC_TRACE)
-  {
-    int32_t tsec, tusec;
-    GVTRACE (" L(");
-    if (l->entity->guid.entityid.u == NN_ENTITYID_PARTICIPANT)
-      GVTRACE (":%"PRIx32, l->entity->guid.entityid.u);
-    else
-      GVTRACE (""PGUIDFMT"", PGUID (l->entity->guid));
-    etime_to_sec_usec (&tsec, &tusec, tend_new);
-    GVTRACE (" %"PRId32".%06"PRId32")", tsec, tusec);
-  }
+   * will be the case because tend is set to DDS_NEVER. */
+  trace_lease_renew (l, "", tend_new);
 }
 
-void lease_set_expiry (struct lease *l, nn_etime_t when)
+void lease_set_expiry (struct lease *l, ddsrt_etime_t when)
 {
-  struct q_globals * const gv = l->entity->gv;
+  struct ddsi_domaingv * const gv = l->entity->gv;
   bool trigger = false;
   assert (when.v >= 0);
   ddsrt_mutex_lock (&gv->leaseheap_lock);
@@ -189,13 +194,15 @@ void lease_set_expiry (struct lease *l, nn_etime_t when)
        TSCHED_NOT_ON_HEAP == INT64_MIN) */
     l->tsched = when;
     ddsrt_fibheap_decrease_key (&lease_fhdef, &gv->leaseheap, l);
+    trace_lease_renew (l, "earlier ", when);
     trigger = true;
   }
-  else if (l->tsched.v == TSCHED_NOT_ON_HEAP && when.v < T_NEVER)
+  else if (l->tsched.v == TSCHED_NOT_ON_HEAP && when.v < DDS_NEVER)
   {
     /* not currently scheduled, with a finite new expiry time */
     l->tsched = when;
     ddsrt_fibheap_insert (&lease_fhdef, &gv->leaseheap, l);
+    trace_lease_renew (l, "insert ", when);
     trigger = true;
   }
   ddsrt_mutex_unlock (&gv->leaseheap_lock);
@@ -205,7 +212,7 @@ void lease_set_expiry (struct lease *l, nn_etime_t when)
     force_lease_check (gv->gcreq_queue);
 }
 
-int64_t check_and_handle_lease_expiration (struct q_globals *gv, nn_etime_t tnowE)
+int64_t check_and_handle_lease_expiration (struct ddsi_domaingv *gv, ddsrt_etime_t tnowE)
 {
   struct lease *l;
   int64_t delay;
@@ -222,7 +229,7 @@ int64_t check_and_handle_lease_expiration (struct q_globals *gv, nn_etime_t tnow
     int64_t tend = (int64_t) ddsrt_atomic_ld64 (&l->tend);
     if (tnowE.v < tend)
     {
-      if (tend == T_NEVER) {
+      if (tend == DDS_NEVER) {
         /* don't reinsert if it won't expire */
         l->tsched.v = TSCHED_NOT_ON_HEAP;
       } else {
@@ -266,7 +273,7 @@ int64_t check_and_handle_lease_expiration (struct q_globals *gv, nn_etime_t tnow
           entidx_lookup_proxy_participant_guid (gv->entity_index, &proxypp->privileged_pp_guid) != NULL)
       {
         GVLOGDISC ("but postponing because privileged pp "PGUIDFMT" is still live\n", PGUID (proxypp->privileged_pp_guid));
-        l->tsched = add_duration_to_etime (tnowE, 200 * T_MILLISECOND);
+        l->tsched = ddsrt_etime_add_duration (tnowE, DDS_MSECS (200));
         ddsrt_fibheap_insert (&lease_fhdef, &gv->leaseheap, l);
         continue;
       }
@@ -278,14 +285,16 @@ int64_t check_and_handle_lease_expiration (struct q_globals *gv, nn_etime_t tnow
     switch (k)
     {
       case EK_PROXY_PARTICIPANT:
-        delete_proxy_participant_by_guid (gv, &g, now(), 1);
+        delete_proxy_participant_by_guid (gv, &g, ddsrt_time_wallclock(), 1);
         break;
       case EK_PROXY_WRITER:
-        proxy_writer_set_notalive_guid (gv, &g, true);
+        proxy_writer_set_notalive ((struct proxy_writer *) l->entity, true);
+        break;
+      case EK_WRITER:
+        writer_set_notalive ((struct writer *) l->entity, true);
         break;
       case EK_PARTICIPANT:
       case EK_READER:
-      case EK_WRITER:
       case EK_PROXY_READER:
         assert (false);
         break;
@@ -293,7 +302,7 @@ int64_t check_and_handle_lease_expiration (struct q_globals *gv, nn_etime_t tnow
     ddsrt_mutex_lock (&gv->leaseheap_lock);
   }
 
-  delay = (l == NULL) ? T_NEVER : (l->tsched.v - tnowE.v);
+  delay = (l == NULL) ? DDS_INFINITY : (l->tsched.v - tnowE.v);
   ddsrt_mutex_unlock (&gv->leaseheap_lock);
   return delay;
 }

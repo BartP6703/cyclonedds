@@ -10,12 +10,11 @@
  * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
  */
 #include "dds/dds.h"
-#include "RoundTrip.h"
-#include "CUnit/Theory.h"
-
 #include "dds/ddsrt/misc.h"
 #include "dds/ddsrt/process.h"
 #include "dds/ddsrt/threads.h"
+
+#include "test_common.h"
 
 /**************************************************************************************************
  *
@@ -36,21 +35,11 @@ char g_topicRtmAddressName[MAX_NAME_SIZE];
 char g_topicRtmDataTypeName[MAX_NAME_SIZE];
 char g_nameBuffer[MAX_NAME_SIZE];
 
-static char*
-create_topic_name(const char *prefix, char *name, size_t size)
-{
-    /* Get semi random g_topic name. */
-    ddsrt_pid_t pid = ddsrt_getpid();
-    ddsrt_tid_t tid = ddsrt_gettid();
-    (void) snprintf(name, size, "%s_pid%"PRIdPID"_tid%"PRIdTID"", prefix, pid, tid);
-    return name;
-}
-
 static void
 ddsc_topic_init(void)
 {
-    create_topic_name("ddsc_topic_test_rtm_address",  g_topicRtmAddressName,  MAX_NAME_SIZE);
-    create_topic_name("ddsc_topic_test_rtm_datatype", g_topicRtmDataTypeName, MAX_NAME_SIZE);
+    create_unique_topic_name("ddsc_topic_test_rtm_address",  g_topicRtmAddressName,  MAX_NAME_SIZE);
+    create_unique_topic_name("ddsc_topic_test_rtm_datatype", g_topicRtmDataTypeName, MAX_NAME_SIZE);
 
     g_participant = dds_create_participant(DDS_DOMAIN_DEFAULT, NULL, NULL);
     CU_ASSERT_FATAL(g_participant > 0);
@@ -130,8 +119,12 @@ CU_Test(ddsc_topic_create, duplicate, .init=ddsc_topic_init, .fini=ddsc_topic_fi
     /* Creating the same topic should succeed.  */
     topic = dds_create_topic(g_participant, &RoundTripModule_DataType_desc, g_topicRtmDataTypeName, NULL, NULL);
     CU_ASSERT_FATAL(topic > 0);
+    CU_ASSERT_FATAL(topic != g_topicRtmDataType);
     ret = dds_delete(topic);
     CU_ASSERT_EQUAL_FATAL(ret, DDS_RETCODE_OK);
+    /* Old topic entity should remain in existence */
+    ret = dds_get_parent(g_topicRtmDataType);
+    CU_ASSERT(ret > 0);
 }
 /*************************************************************************************************/
 
@@ -177,7 +170,7 @@ CU_Test(ddsc_topic_create, desc_null, .init=ddsc_topic_init, .fini=ddsc_topic_fi
 
 
 CU_TheoryDataPoints(ddsc_topic_create, invalid_names) = {
-        CU_DataPoints(char *, NULL, "", "mi-dle", "-start", "end-", "1st", "Thus$", "pl+s", "t(4)"),
+        CU_DataPoints(char *, NULL, "", "mi-dle", "-start", "end-", "1st", "Thus$", "pl+s", "t(4)", "DCPSmytopic"),
 };
 CU_Theory((char *name), ddsc_topic_create, invalid_names, .init=ddsc_topic_init, .fini=ddsc_topic_fini)
 {
@@ -201,7 +194,7 @@ CU_Test(ddsc_topic_find, valid, .init=ddsc_topic_init, .fini=ddsc_topic_fini)
     dds_return_t ret;
 
     topic = dds_find_topic(g_participant, g_topicRtmDataTypeName);
-    CU_ASSERT_EQUAL_FATAL(topic, g_topicRtmDataType);
+    CU_ASSERT_NOT_EQUAL_FATAL(topic, g_topicRtmDataType);
 
     ret = dds_delete(topic);
     CU_ASSERT_EQUAL_FATAL(ret, DDS_RETCODE_OK);

@@ -14,7 +14,7 @@
 
 #include "dds/ddsi/q_log.h"
 #include "dds/ddsi/q_thread.h"
-#include "dds/ddsi/q_xqos.h"
+#include "dds/ddsi/ddsi_xqos.h"
 #include "dds/ddsi/q_feature_check.h"
 #include "dds/ddsi/ddsi_portmapping.h"
 
@@ -161,6 +161,42 @@ enum many_sockets_mode {
   MSM_MANY_UNICAST
 };
 
+#ifdef DDSI_INCLUDE_SECURITY
+typedef struct plugin_library_properties_type{
+  char *library_path;
+  char *library_init;
+  char *library_finalize;
+} plugin_library_properties_type;
+
+typedef struct authentication_properties_type{
+  char *identity_certificate;
+  char *identity_ca;
+  char *private_key;
+  char *password;
+  char *trusted_ca_dir;
+  int include_optional_fields;
+} authentication_properties_type;
+
+typedef struct access_control_properties_type{
+  char *permissions;
+  char *permissions_ca;
+  char *governance;
+} access_control_properties_type;
+
+typedef struct omg_security_configuration_type {
+  authentication_properties_type authentication_properties;
+  access_control_properties_type access_control_properties;
+  plugin_library_properties_type authentication_plugin;
+  plugin_library_properties_type access_control_plugin;
+  plugin_library_properties_type cryptography_plugin;
+} omg_security_configuration_type;
+
+struct config_omg_security_listelem {
+  struct config_omg_security_listelem *next;
+  omg_security_configuration_type cfg;
+};
+#endif /* DDSI_INCLUDE_SECURITY */
+
 #ifdef DDSI_INCLUDE_SSL
 struct ssl_min_version {
   int major;
@@ -218,7 +254,7 @@ struct config
   int64_t liveliness_monitoring_interval;
   int prioritize_retransmit;
   int xpack_send_async;
-  int multiple_recv_threads;
+  enum boolean_default multiple_recv_threads;
   unsigned recv_thread_stop_maxretries;
 
   unsigned primary_reorder_maxsamples;
@@ -226,10 +262,11 @@ struct config
 
   unsigned delivery_queue_maxsamples;
 
-  int do_topic_discovery;
-
+  uint16_t fragment_size;
   uint32_t max_msg_size;
-  uint32_t fragment_size;
+  uint32_t max_rexmit_msg_size;
+  uint32_t init_transmit_extra_pct;
+  uint32_t max_rexmit_burst_size;
 
   int publish_uc_locators; /* Publish discovery unicast locators */
   int enable_uc_locators; /* If false, don't even try to create a unicast socket */
@@ -300,6 +337,7 @@ struct config
   int multicast_ttl;
   struct config_maybe_uint32 socket_min_rcvbuf_size;
   uint32_t socket_min_sndbuf_size;
+  int64_t ack_delay;
   int64_t nack_delay;
   int64_t preemptive_ack_delay;
   int64_t schedule_time_rounding;
@@ -333,6 +371,10 @@ struct config
 
   int use_multicast_if_mreqn;
   struct prune_deleted_ppant prune_deleted_ppant;
+
+#ifdef DDSI_INCLUDE_SECURITY
+  struct config_omg_security_listelem *omg_security_configuration;
+#endif
 };
 
 struct cfgst;

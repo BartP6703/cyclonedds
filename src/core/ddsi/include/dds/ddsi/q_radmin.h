@@ -102,16 +102,24 @@ DDSRT_STATIC_ASSERT (sizeof (struct nn_rmsg) == offsetof (struct nn_rmsg, chunk)
 #define NN_RMSG_PAYLOAD(m) ((unsigned char *) (m + 1))
 #define NN_RMSG_PAYLOADOFF(m, o) (NN_RMSG_PAYLOAD (m) + (o))
 
+/* Align rmsg chunks to the larger of sizeof(void*) or 8.
+
+Ideally, we would use C11's alignof(struct nn_rmsg); however, to avoid dependency on C11,
+we ensure rmsg chunks are at least aligned to sizeof(void *) or 8,
+whichever is larger. */
+#define ALIGNOF_RMSG (sizeof(void *) > 8 ? sizeof(void *) : 8)
+
 struct receiver_state {
-  ddsi_guid_prefix_t src_guid_prefix;       /* 12 */
-  ddsi_guid_prefix_t dst_guid_prefix;       /* 12 */
+  ddsi_guid_prefix_t src_guid_prefix;     /* 12 */
+  ddsi_guid_prefix_t dst_guid_prefix;     /* 12 */
   struct addrset *reply_locators;         /* 4/8 */
-  int forme;                              /* 4 */
+  uint32_t forme:1;                       /* 4 */
+  uint32_t rtps_encoded:1;                /* - */
   nn_vendorid_t vendor;                   /* 2 */
   nn_protocol_version_t protocol_version; /* 2 => 44/48 */
   ddsi_tran_conn_t conn;                  /* Connection for request */
   nn_locator_t srcloc;
-  struct q_globals *gv;
+  struct ddsi_domaingv *gv;
 };
 
 struct nn_rsample_info {
@@ -120,10 +128,9 @@ struct nn_rsample_info {
   struct proxy_writer *pwr;
   uint32_t size;
   uint32_t fragsize;
-  nn_wctime_t timestamp;
-  nn_wctime_t reception_timestamp; /* OpenSplice extension -- but we get it essentially for free, so why not? */
+  ddsrt_wctime_t timestamp;
+  ddsrt_wctime_t reception_timestamp; /* OpenSplice extension -- but we get it essentially for free, so why not? */
   unsigned statusinfo: 2;       /* just the two defined bits from the status info */
-  unsigned pt_wr_info_zoff: 16; /* PrismTech writer info offset */
   unsigned bswap: 1;            /* so we can extract well formatted writer info quicker */
   unsigned complex_qos: 1;      /* includes QoS other than keyhash, 2-bit statusinfo, PT writer info */
 };
@@ -156,8 +163,6 @@ struct nn_rdata {
 #define NN_ZOFF_TO_OFF(zoff) ((unsigned) (zoff))
 #define NN_OFF_TO_ZOFF(off) ((unsigned short) (off))
 #endif
-#define NN_SAMPLEINFO_HAS_WRINFO(rsi) ((rsi)->pt_wr_info_zoff != NN_OFF_TO_ZOFF (0))
-#define NN_SAMPLEINFO_WRINFO_OFF(rsi) NN_ZOFF_TO_OFF ((rsi)->pt_wr_info_zoff)
 #define NN_RDATA_PAYLOAD_OFF(rdata) NN_ZOFF_TO_OFF ((rdata)->payload_zoff)
 #define NN_RDATA_SUBMSG_OFF(rdata) NN_ZOFF_TO_OFF ((rdata)->submsg_zoff)
 
@@ -218,7 +223,16 @@ struct nn_defrag *nn_defrag_new (const struct ddsrt_log_cfg *logcfg, enum nn_def
 void nn_defrag_free (struct nn_defrag *defrag);
 struct nn_rsample *nn_defrag_rsample (struct nn_defrag *defrag, struct nn_rdata *rdata, const struct nn_rsample_info *sampleinfo);
 void nn_defrag_notegap (struct nn_defrag *defrag, seqno_t min, seqno_t maxp1);
-int nn_defrag_nackmap (struct nn_defrag *defrag, seqno_t seq, uint32_t maxfragnum, struct nn_fragment_number_set_header *map, uint32_t *mapbits, uint32_t maxsz);
+
+enum nn_defrag_nackmap_result {
+  DEFRAG_NACKMAP_UNKNOWN_SAMPLE,
+  DEFRAG_NACKMAP_ALL_ADVERTISED_FRAGMENTS_KNOWN,
+  DEFRAG_NACKMAP_FRAGMENTS_MISSING
+};
+
+enum nn_defrag_nackmap_result nn_defrag_nackmap (struct nn_defrag *defrag, seqno_t seq, uint32_t maxfragnum, struct nn_fragment_number_set_header *map, uint32_t *mapbits, uint32_t maxsz);
+
+void nn_defrag_prune (struct nn_defrag *defrag, ddsi_guid_prefix_t *dst, seqno_t min);
 
 struct nn_reorder *nn_reorder_new (const struct ddsrt_log_cfg *logcfg, enum nn_reorder_mode mode, uint32_t max_samples, bool late_ack_mode);
 void nn_reorder_free (struct nn_reorder *r);
@@ -226,11 +240,12 @@ struct nn_rsample *nn_reorder_rsample_dup_first (struct nn_rmsg *rmsg, struct nn
 struct nn_rdata *nn_rsample_fragchain (struct nn_rsample *rsample);
 nn_reorder_result_t nn_reorder_rsample (struct nn_rsample_chain *sc, struct nn_reorder *reorder, struct nn_rsample *rsampleiv, int *refcount_adjust, int delivery_queue_full_p);
 nn_reorder_result_t nn_reorder_gap (struct nn_rsample_chain *sc, struct nn_reorder *reorder, struct nn_rdata *rdata, seqno_t min, seqno_t maxp1, int *refcount_adjust);
-int nn_reorder_wantsample (struct nn_reorder *reorder, seqno_t seq);
-unsigned nn_reorder_nackmap (struct nn_reorder *reorder, seqno_t base, seqno_t maxseq, struct nn_sequence_number_set_header *map, uint32_t *mapbits, uint32_t maxsz, int notail);
+int nn_reorder_wantsample (const struct nn_reorder *reorder, seqno_t seq);
+unsigned nn_reorder_nackmap (const struct nn_reorder *reorder, seqno_t base, seqno_t maxseq, struct nn_sequence_number_set_header *map, uint32_t *mapbits, uint32_t maxsz, int notail);
 seqno_t nn_reorder_next_seq (const struct nn_reorder *reorder);
+void nn_reorder_set_next_seq (struct nn_reorder *reorder, seqno_t seq);
 
-struct nn_dqueue *nn_dqueue_new (const char *name, const struct q_globals *gv, uint32_t max_samples, nn_dqueue_handler_t handler, void *arg);
+struct nn_dqueue *nn_dqueue_new (const char *name, const struct ddsi_domaingv *gv, uint32_t max_samples, nn_dqueue_handler_t handler, void *arg);
 void nn_dqueue_free (struct nn_dqueue *q);
 bool nn_dqueue_enqueue_deferred_wakeup (struct nn_dqueue *q, struct nn_rsample_chain *sc, nn_reorder_result_t rres);
 void dd_dqueue_enqueue_trigger (struct nn_dqueue *q);
@@ -239,6 +254,9 @@ void nn_dqueue_enqueue1 (struct nn_dqueue *q, const ddsi_guid_t *rdguid, struct 
 void nn_dqueue_enqueue_callback (struct nn_dqueue *q, nn_dqueue_callback_t cb, void *arg);
 int  nn_dqueue_is_full (struct nn_dqueue *q);
 void nn_dqueue_wait_until_empty_if_full (struct nn_dqueue *q);
+
+void nn_defrag_stats (struct nn_defrag *defrag, uint64_t *discarded_bytes);
+void nn_reorder_stats (struct nn_reorder *reorder, uint64_t *discarded_bytes);
 
 #if defined (__cplusplus)
 }

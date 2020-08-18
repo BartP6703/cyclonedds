@@ -25,6 +25,7 @@
 #endif
 
 #include "dds/dds.h"
+#include "dds/ddsc/dds_statistics.h"
 #include "ddsperf_types.h"
 
 #include "dds/ddsrt/process.h"
@@ -93,6 +94,12 @@ static enum topicsel topicsel = KS;
 static enum submode submode = SM_LISTENER;
 static enum submode pingpongmode = SM_LISTENER;
 
+/* Whether to show "sub" stats every second even when nothing happens */
+static bool substat_every_second = false;
+
+/* Whether to show extended statistics (currently just rexmit info) */
+static bool extended_stats = false;
+
 /* Size of the sequence in KeyedSeq type in bytes */
 static uint32_t baggagesize = 0;
 
@@ -104,6 +111,9 @@ static double dur = HUGE_VAL;
 
 /* Minimum number of peers (if not met, exit status is 1) */
 static uint32_t minmatch = 0;
+
+/* Wait this long for MINMATCH peers before starting */
+static double initmaxwait = 0;
 
 /* Maximum time it may take to discover all MINMATCH peers */
 static double maxwait = HUGE_VAL;
@@ -151,6 +161,18 @@ static dds_duration_t ping_intv;
    pongs had been received */
 static uint32_t ping_timeouts = 0;
 
+/* Maximum allowed increase in RSS between 2nd RSS sample and
+   final RSS sample: final one must be <=
+   init * (1 + rss_factor/100) + rss_term  */
+static bool rss_check = false;
+static double rss_factor = 1;
+static double rss_term = 0;
+
+/* Minimum number of samples, minimum number of roundtrips to
+   declare the run a success */
+static uint64_t min_received = 0;
+static uint64_t min_roundtrips = 0;
+
 static ddsrt_mutex_t disc_lock;
 
 /* Publisher statistics and lock protecting it */
@@ -177,9 +199,12 @@ struct eseq_stat {
   uint32_t last_size;
 
   /* stats printer state */
-  uint64_t nrecv_ref;
-  uint64_t nlost_ref;
-  uint64_t nrecv_bytes_ref;
+  struct {
+    uint64_t nrecv;
+    uint64_t nlost;
+    uint64_t nrecv_bytes;
+  } ref[10];
+  unsigned refidx;
 };
 
 struct eseq_admin {
@@ -207,6 +232,7 @@ struct subthread_arg_pongstat {
   uint64_t min, max;
   uint64_t sum;
   uint32_t cnt;
+  uint64_t totcnt;
   uint64_t *raw;
 };
 
@@ -270,7 +296,7 @@ struct ppant {
   ddsrt_avl_node_t avlnode;     /* embedded AVL node for handle index */
   ddsrt_fibheap_node_t fhnode;  /* prio queue for timeout handling */
   dds_instance_handle_t handle; /* participant instance handle */
-  dds_builtintopic_guid_t guid; /* participant GUID */
+  dds_guid_t guid;              /* participant GUID */
   char *hostname;               /* hostname is taken from user_data QoS */
   uint32_t pid;                 /* pid is also taken from user_data QoS */
   dds_time_t tdisc;             /* time at which it was discovered */
@@ -344,7 +370,7 @@ static void error3 (const char *fmt, ...)
   verrorx (3, fmt, ap);
 }
 
-static char *make_guidstr (struct guidstr *buf, const dds_builtintopic_guid_t *guid)
+static char *make_guidstr (struct guidstr *buf, const dds_guid_t *guid)
 {
   snprintf (buf->str, sizeof (buf->str), "%02x%02x%02x%02x_%02x%02x%02x%02x_%02x%02x%02x%02x_%02x%02x%02x%02x",
             guid->v[0], guid->v[1], guid->v[2], guid->v[3],
@@ -549,7 +575,7 @@ static uint32_t pubthread (void *varg)
 {
   int result;
   dds_instance_handle_t *ihs;
-  dds_time_t ntot = 0, tfirst, tfirst0;
+  dds_time_t ntot = 0, tfirst;
   union data data;
   uint64_t timeouts = 0;
   void *baggage = NULL;
@@ -571,7 +597,7 @@ static uint32_t pubthread (void *varg)
   }
   data.seq_keyval.keyval = 0;
 
-  tfirst0 = tfirst = dds_time();
+  tfirst = dds_time();
 
   uint32_t bi = 0;
   while (!ddsrt_atomic_ld32 (&termflag))
@@ -610,7 +636,7 @@ static uint32_t pubthread (void *varg)
       if (++bi == burstsize)
       {
         /* FIXME: should average rate over a short-ish period, rather than over the entire run */
-        while (((double) (ntot / burstsize) / ((double) (t - tfirst0) / 1e9 + 5e-3)) > pub_rate && !ddsrt_atomic_ld32 (&termflag))
+        while (((double) (ntot / burstsize) / ((double) (t - tfirst) / 1e9 + 5e-3)) > pub_rate && !ddsrt_atomic_ld32 (&termflag))
         {
           /* FIXME: flushing manually because batching is not yet implemented properly */
           dds_write_flush (wr_data);
@@ -733,6 +759,7 @@ static bool update_roundtrip (dds_instance_handle_t pubhandle, uint64_t tdelta, 
       if (x->cnt < PINGPONG_RAWSIZE)
         x->raw[x->cnt] = tdelta;
       x->cnt++;
+      x->totcnt++;
       ddsrt_mutex_unlock (&pongstat_lock);
       return allseen;
     }
@@ -742,6 +769,7 @@ static bool update_roundtrip (dds_instance_handle_t pubhandle, uint64_t tdelta, 
   x->pphandle = get_pphandle_for_pubhandle (pubhandle);
   x->min = x->max = x->sum = tdelta;
   x->cnt = 1;
+  x->totcnt = 1;
   x->raw = malloc (PINGPONG_RAWSIZE * sizeof (*x->raw));
   x->raw[0] = tdelta;
   npongstat++;
@@ -969,18 +997,24 @@ static void maybe_send_new_ping (dds_time_t tnow, dds_time_t *tnextping)
   }
 }
 
-static uint32_t subthread_waitset (void *varg)
+static dds_entity_t make_reader_waitset (dds_entity_t rd)
 {
-  struct subthread_arg * const arg = varg;
   dds_entity_t ws;
   int32_t rc;
   ws = dds_create_waitset (dp);
   if ((rc = dds_waitset_attach (ws, termcond, 0)) < 0)
     error2 ("dds_waitset_attach (termcond, 0): %d\n", (int) rc);
-  if ((rc = dds_set_status_mask (rd_data, DDS_DATA_AVAILABLE_STATUS)) < 0)
-    error2 ("dds_set_status_mask (rd_data, DDS_DATA_AVAILABLE_STATUS): %d\n", (int) rc);
-  if ((rc = dds_waitset_attach (ws, rd_data, 1)) < 0)
-    error2 ("dds_waitset_attach (ws, rd_data, 1): %d\n", (int) rc);
+  if ((rc = dds_set_status_mask (rd, DDS_DATA_AVAILABLE_STATUS | DDS_SUBSCRIPTION_MATCHED_STATUS)) < 0)
+    error2 ("dds_set_status_mask (rd, DDS_DATA_AVAILABLE_STATUS | DDS_SUBSCRIPTION_MATCHED_STATUS): %d\n", (int) rc);
+  if ((rc = dds_waitset_attach (ws, rd, 1)) < 0)
+    error2 ("dds_waitset_attach (ws, rd, 1): %d\n", (int) rc);
+  return ws;
+}
+
+static uint32_t subthread_waitset (void *varg)
+{
+  struct subthread_arg * const arg = varg;
+  dds_entity_t ws = make_reader_waitset (rd_data);
   while (!ddsrt_atomic_ld32 (&termflag))
   {
     if (!process_data (rd_data, arg))
@@ -998,15 +1032,7 @@ static uint32_t subthread_waitset (void *varg)
 static uint32_t subpingthread_waitset (void *varg)
 {
   struct subthread_arg * const arg = varg;
-  dds_entity_t ws;
-  int32_t rc;
-  ws = dds_create_waitset (dp);
-  if ((rc = dds_waitset_attach (ws, termcond, 0)) < 0)
-    error2 ("dds_waitset_attach (termcond, 0): %d\n", (int) rc);
-  if ((rc = dds_set_status_mask (rd_ping, DDS_DATA_AVAILABLE_STATUS)) < 0)
-    error2 ("dds_set_status_mask (rd_ping, DDS_DATA_AVAILABLE_STATUS): %d\n", (int) rc);
-  if ((rc = dds_waitset_attach (ws, rd_ping, 1)) < 0)
-    error2 ("dds_waitset_attach (ws, rd_ping, 1): %d\n", (int) rc);
+  dds_entity_t ws = make_reader_waitset (rd_ping);
   while (!ddsrt_atomic_ld32 (&termflag))
   {
     int32_t nxs;
@@ -1020,15 +1046,7 @@ static uint32_t subpingthread_waitset (void *varg)
 static uint32_t subpongthread_waitset (void *varg)
 {
   struct subthread_arg * const arg = varg;
-  dds_entity_t ws;
-  int32_t rc;
-  ws = dds_create_waitset (dp);
-  if ((rc = dds_waitset_attach (ws, termcond, 0)) < 0)
-    error2 ("dds_waitset_attach (termcond, 0): %d\n", (int) rc);
-  if ((rc = dds_set_status_mask (rd_pong, DDS_DATA_AVAILABLE_STATUS)) < 0)
-    error2 ("dds_set_status_mask (rd_pong, DDS_DATA_AVAILABLE_STATUS): %d\n", (int) rc);
-  if ((rc = dds_waitset_attach (ws, rd_pong, 1)) < 0)
-    error2 ("dds_waitset_attach (ws, rd_pong, 1): %d\n", (int) rc);
+  dds_entity_t ws = make_reader_waitset (rd_pong);
   while (!ddsrt_atomic_ld32 (&termflag))
   {
     int32_t nxs;
@@ -1101,7 +1119,7 @@ static dds_entity_t create_pong_writer (dds_instance_handle_t pphandle, const st
   return wr_pong;
 }
 
-static void delete_pong_writer (dds_instance_handle_t pphandle)
+static dds_entity_t delete_pong_writer (dds_instance_handle_t pphandle)
 {
   uint32_t i = 0;
   dds_entity_t wr_pong = 0;
@@ -1118,8 +1136,7 @@ static void delete_pong_writer (dds_instance_handle_t pphandle)
     }
   }
   ddsrt_mutex_unlock (&pongwr_lock);
-  if (wr_pong)
-    dds_delete (wr_pong);
+  return wr_pong;
 }
 
 static void free_ppant (void *vpp)
@@ -1143,6 +1160,7 @@ static void participant_data_listener (dds_entity_t rd, void *arg)
     if (info.instance_state != DDS_ALIVE_INSTANCE_STATE)
     {
       ddsrt_avl_dpath_t dpath;
+      dds_entity_t pong_wr_to_del = 0;
       ddsrt_mutex_lock (&disc_lock);
       if ((pp = ddsrt_avl_lookup_dpath (&ppants_td, &ppants, &info.instance_handle, &dpath)) != NULL)
       {
@@ -1151,7 +1169,7 @@ static void participant_data_listener (dds_entity_t rd, void *arg)
 
         if (pp->handle != dp_handle || ignorelocal == DDS_IGNORELOCAL_NONE)
         {
-          delete_pong_writer (pp->handle);
+          pong_wr_to_del = delete_pong_writer (pp->handle);
           n_pong_expected_delta--;
         }
 
@@ -1161,6 +1179,7 @@ static void participant_data_listener (dds_entity_t rd, void *arg)
         free_ppant (pp);
       }
       ddsrt_mutex_unlock (&disc_lock);
+      dds_delete (pong_wr_to_del);
     }
     else
     {
@@ -1171,6 +1190,7 @@ static void participant_data_listener (dds_entity_t rd, void *arg)
       /* only add unknown participants with the magic user_data value: DDSPerf:X:HOSTNAME, where X is decimal  */
       if (dds_qget_userdata (sample->qos, &vudata, &usz) && usz > 0)
       {
+        bool make_pongwr = false;
         const char *udata = vudata;
         int has_reader, pos;
         long pid;
@@ -1199,15 +1219,17 @@ static void participant_data_listener (dds_entity_t rd, void *arg)
             ddsrt_fibheap_insert (&ppants_to_match_fhd, &ppants_to_match, pp);
             ddsrt_avl_insert_ipath (&ppants_td, &ppants, pp, &ipath);
 
-            if (pp->handle != dp_handle || ignorelocal == DDS_IGNORELOCAL_NONE)
-            {
-              struct guidstr guidstr;
-              make_guidstr (&guidstr, &sample->key);
-              create_pong_writer (pp->handle, &guidstr);
-              n_pong_expected_delta++;
-            }
+            make_pongwr = (pp->handle != dp_handle || ignorelocal == DDS_IGNORELOCAL_NONE);
           }
           ddsrt_mutex_unlock (&disc_lock);
+
+          if (make_pongwr)
+          {
+            struct guidstr guidstr;
+            make_guidstr (&guidstr, &sample->key);
+            create_pong_writer (pp->handle, &guidstr);
+            n_pong_expected_delta++;
+          }
         }
         dds_free (vudata);
       }
@@ -1312,8 +1334,8 @@ static void subscription_matched_listener (dds_entity_t rd, const dds_subscripti
 static void publication_matched_listener (dds_entity_t wr, const dds_publication_matched_status_t status, void *arg)
 {
   /* this only works because the listener is called for every match; but I don't think that is something the
-   spec guarantees, and I don't think Cyclone should guarantee that either -- and if it isn't guaranteed
-   _really_ needs the get_matched_... interfaces to not have to implement the matching logic ... */
+     spec guarantees, and I don't think Cyclone should guarantee that either -- and if it isn't guaranteed
+     _really_ needs the get_matched_... interfaces to not have to implement the matching logic ... */
   (void) wr;
   if (status.current_count_change > 0)
   {
@@ -1326,8 +1348,8 @@ static void publication_matched_listener (dds_entity_t wr, const dds_publication
 static void set_data_available_listener (dds_entity_t rd, const char *rd_name, dds_on_data_available_fn fn, void *arg)
 {
   /* This convoluted code is so that we leave all listeners unchanged, except the
-   data_available one.  There is no real need for these complications, but it is
-   a nice exercise. */
+     data_available one.  There is no real need for these complications, but it is
+     a nice exercise. */
   dds_listener_t *listener = dds_create_listener (arg);
   dds_return_t rc;
   dds_lset_data_available (listener, fn);
@@ -1349,7 +1371,17 @@ static int cmp_uint64 (const void *va, const void *vb)
   return (*a == *b) ? 0 : (*a < *b) ? -1 : 1;
 }
 
-static void print_stats (dds_time_t tref, dds_time_t tnow, dds_time_t tprev, struct record_cputime_state *cputime_state, struct record_netload_state *netload_state)
+struct dds_stats {
+  struct dds_statistics *pubstat;
+  const struct dds_stat_keyvalue *rexmit_bytes;
+  const struct dds_stat_keyvalue *time_throttle;
+  const struct dds_stat_keyvalue *time_rexmit;
+  const struct dds_stat_keyvalue *throttle_count;
+  struct dds_statistics *substat;
+  const struct dds_stat_keyvalue *discarded_bytes;
+};
+
+static bool print_stats (dds_time_t tref, dds_time_t tnow, dds_time_t tprev, struct record_cputime_state *cputime_state, struct record_netload_state *netload_state, struct dds_stats *stats)
 {
   char prefix[128];
   const double ts = (double) (tnow - tref) / 1e9;
@@ -1367,30 +1399,39 @@ static void print_stats (dds_time_t tref, dds_time_t tnow, dds_time_t tprev, str
   if (submode != SM_NONE)
   {
     struct eseq_admin * const ea = &eseq_admin;
-    uint64_t tot_nrecv = 0, tot_nlost = 0, nrecv = 0, nrecv_bytes = 0, nlost = 0;
+    uint64_t tot_nrecv = 0, tot_nlost = 0, nlost = 0;
+    uint64_t nrecv = 0, nrecv_bytes = 0;
+    uint64_t nrecv10s = 0, nrecv10s_bytes = 0;
     uint32_t last_size = 0;
     ddsrt_mutex_lock (&ea->lock);
     for (uint32_t i = 0; i < ea->nph; i++)
     {
       struct eseq_stat * const x = &ea->stats[i];
+      unsigned refidx1s = (x->refidx == 0) ? (unsigned) (sizeof (x->ref) / sizeof (x->ref[0]) - 1) : (x->refidx - 1);
+      unsigned refidx10s = x->refidx;
       tot_nrecv += x->nrecv;
       tot_nlost += x->nlost;
-      nrecv += x->nrecv - x->nrecv_ref;
-      nlost += x->nlost - x->nlost_ref;
-      nrecv_bytes += x->nrecv_bytes - x->nrecv_bytes_ref;
+      nrecv += x->nrecv - x->ref[refidx1s].nrecv;
+      nlost += x->nlost - x->ref[refidx1s].nlost;
+      nrecv_bytes += x->nrecv_bytes - x->ref[refidx1s].nrecv_bytes;
+      nrecv10s += x->nrecv - x->ref[refidx10s].nrecv;
+      nrecv10s_bytes += x->nrecv_bytes - x->ref[refidx10s].nrecv_bytes;
       last_size = x->last_size;
-      x->nrecv_ref = x->nrecv;
-      x->nlost_ref = x->nlost;
-      x->nrecv_bytes_ref = x->nrecv_bytes;
+      x->ref[x->refidx].nrecv = x->nrecv;
+      x->ref[x->refidx].nlost = x->nlost;
+      x->ref[x->refidx].nrecv_bytes = x->nrecv_bytes;
+      if (++x->refidx == (unsigned) (sizeof (x->ref) / sizeof (x->ref[0])))
+        x->refidx = 0;
     }
     ddsrt_mutex_unlock (&ea->lock);
 
-    if (nrecv > 0)
+    if (nrecv > 0 || substat_every_second)
     {
       const double dt = (double) (tnow - tprev);
-      printf ("%s size %"PRIu32" total %"PRIu64" lost %"PRIu64" delta %"PRIu64" lost %"PRIu64" rate %.2f kS/s %.2f Mb/s\n",
+      printf ("%s size %"PRIu32" total %"PRIu64" lost %"PRIu64" delta %"PRIu64" lost %"PRIu64" rate %.2f kS/s %.2f Mb/s (%.2f kS/s %.2f Mb/s)\n",
               prefix, last_size, tot_nrecv, tot_nlost, nrecv, nlost,
-              (double) nrecv * 1e6 / dt, (double) nrecv_bytes * 8 * 1e3 / dt);
+              (double) nrecv * 1e6 / dt, (double) nrecv_bytes * 8 * 1e3 / dt,
+              (double) nrecv10s * 1e6 / (10 * dt), (double) nrecv10s_bytes * 8 * 1e3 / (10 * dt));
       output = true;
     }
   }
@@ -1474,7 +1515,16 @@ static void print_stats (dds_time_t tref, dds_time_t tnow, dds_time_t tprev, str
 
   if (output)
     record_netload (netload_state, prefix, tnow);
+
+  if (extended_stats && output && stats)
+  {
+    (void) dds_refresh_statistics (stats->substat);
+    (void) dds_refresh_statistics (stats->pubstat);
+    printf ("%s discarded %"PRIu64" rexmit %"PRIu64" Trexmit %"PRIu64" Tthrottle %"PRIu64" Nthrottle %"PRIu32"\n", prefix, stats->discarded_bytes->u.u64, stats->rexmit_bytes->u.u64, stats->time_rexmit->u.u64, stats->time_throttle->u.u64, stats->throttle_count->u.u32);
+  }
+
   fflush (stdout);
+  return output;
 }
 
 static void subthread_arg_init (struct subthread_arg *arg, dds_entity_t rd, uint32_t max_samples)
@@ -1526,7 +1576,7 @@ static void sigxfsz_handler (int sig __attribute__ ((unused)))
     if (write (2, msg, sizeof (msg) - 1) < 0) {
       /* may not ignore return value according to Linux/gcc */
     }
-    print_stats (0, tnow, tnow - DDS_SECS (1), NULL, NULL);
+    print_stats (0, tnow, tnow - DDS_SECS (1), NULL, NULL, NULL);
     kill (getpid (), 9);
   }
 }
@@ -1561,10 +1611,29 @@ OPTIONS:\n\
   -d DEV:BW           report network load for device DEV with nominal\n\
                       bandwidth BW in bits/s (e.g., eth0:1e9)\n\
   -D DUR              run for at most DUR seconds\n\
-  -N COUNT            require at least COUNT matching participants\n\
-  -M DUR              require those participants to match within DUR seconds\n\
+  -Q KEY:VAL          set success criteria\n\
+                        rss:X%%        max allowed increase in RSS, in %%\n\
+                        rss:X         max allowed increase in RSS, in MB\n\
+                        samples:N     min received messages by \"sub\"\n\
+                        roundtrips:N  min roundtrips for \"pong\"\n\
+                        minmatch:N    require >= N matching participants\n\
+                        initwait:DUR  wait for those participants before\n\
+                                      starting, abort if not within DUR\n\
+                                      seconds\n\
+                        maxwait:DUR   require those participants to match\n\
+                                      within DUR seconds\n\
   -R TREF             timestamps in the output relative to TREF instead of\n\
                       process start\n\
+  -W DUR              wait at most DUR seconds for the minimum required\n\
+                      number of matching participants (set by -Qminmatch:N)\n\
+                      to show up before starting reading/writing data,\n\
+                      terminate with an error otherwise.  (This differs\n\
+                      from -Qmaxwait:DUR because that doesn't delay starting\n\
+                      and doesn't terminate the process before doing\n\
+                      anything.)\n\
+  -1                  print \"sub\" stats every second, even when there is\n\
+                      data\n\
+  -X                  output extended statistics\n\
   -i ID               use domain ID instead of the default domain\n\
 \n\
 MODE... is zero or more of:\n\
@@ -1733,7 +1802,7 @@ static void set_mode_ping (int *xoptind, int xargc, char * const xargv[])
   {
     int pos = 0, mult = 1;
     double ping_rate;
-    if (strcmp (xargv[*xoptind], "inf") == 0 && lookup_multiplier (frequency_units, xargv[*xoptind] + 3) > 0)
+    if (strncmp (xargv[*xoptind], "inf", 3) == 0 && lookup_multiplier (frequency_units, xargv[*xoptind] + 3) > 0)
     {
       ping_intv = 0;
     }
@@ -1873,24 +1942,30 @@ int main (int argc, char *argv[])
   ddsrt_thread_t sigtid;
 #endif
   char netload_if[256];
-  double netload_bw = 0;
+  double netload_bw = -1;
+  double rss_init = 0.0, rss_final = 0.0;
   ddsrt_threadattr_init (&attr);
 
   argv0 = argv[0];
 
-  while ((opt = getopt (argc, argv, "cd:D:i:n:k:uLK:T:M:N:R:h")) != EOF)
+  while ((opt = getopt (argc, argv, "1cd:D:i:n:k:uLK:T:Q:R:Xh")) != EOF)
   {
+    int pos;
     switch (opt)
     {
+      case '1': substat_every_second = true; break;
       case 'c': collect_stats = true; break;
       case 'd': {
         char *col;
-        int pos;
         (void) ddsrt_strlcpy (netload_if, optarg, sizeof (netload_if));
-        if ((col = strrchr (netload_if, ':')) == NULL || col == netload_if ||
-            (sscanf (col+1, "%lf%n", &netload_bw, &pos) != 1 || (col+1)[pos] != 0))
-          error3 ("-d%s: expected DEVICE:BANDWIDTH\n", optarg);
-        *col = 0;
+        if ((col = strrchr (netload_if, ':')) == NULL)
+          netload_bw = 0;
+        else
+        {
+          if (col == netload_if || (sscanf (col+1, "%lf%n", &netload_bw, &pos) != 1 || (col+1)[pos] != 0))
+            error3 ("-d %s: expected DEVICE:BANDWIDTH\n", optarg);
+          *col = 0;
+        }
         break;
       }
       case 'D': dur = atof (optarg); if (dur <= 0) dur = HUGE_VAL; break;
@@ -1906,13 +1981,37 @@ int main (int argc, char *argv[])
         else if (strcmp (optarg, "OU") == 0) topicsel = OU;
         else if (strcmp (optarg, "UK16") == 0) topicsel = UK16;
         else if (strcmp (optarg, "UK1024") == 0) topicsel = UK1024;
-        else error3 ("%s: unknown topic\n", optarg);
+        else error3 ("-T %s: unknown topic\n", optarg);
         break;
-      case 'M': maxwait = atof (optarg); if (maxwait <= 0) maxwait = HUGE_VAL; break;
-      case 'N': minmatch = (unsigned) atoi (optarg); break;
-      case 'R': tref = 0; sscanf (optarg, "%"SCNd64, &tref); break;
-      case 'h': usage (); break;
-      default: error3 ("-%c: unknown option\n", opt); break;
+      case 'Q': {
+        double d;
+        unsigned long n;
+        if (sscanf (optarg, "rss:%lf%n", &d, &pos) == 1 && (optarg[pos] == 0 || optarg[pos] == '%')) {
+          if (optarg[pos] == 0) rss_term = d * 1048576.0; else rss_factor = 1.0 + d / 100.0;
+          rss_check = true;
+        } else if (sscanf (optarg, "samples:%lu%n", &n, &pos) == 1 && optarg[pos] == 0) {
+          min_received = (uint64_t) n;
+        } else if (sscanf (optarg, "roundtrips:%lu%n", &n, &pos) == 1 && optarg[pos] == 0) {
+          min_roundtrips = (uint64_t) n;
+        } else if (sscanf (optarg, "maxwait:%lf%n", &maxwait, &pos) == 1 && optarg[pos] == 0) {
+          maxwait = (maxwait <= 0) ? HUGE_VAL : maxwait;
+        } else if (sscanf (optarg, "initwait:%lf%n", &initmaxwait, &pos) == 1 && optarg[pos] == 0) {
+          initmaxwait = (initmaxwait <= 0) ? 0 : initmaxwait;
+        } else if (sscanf (optarg, "minmatch:%lu%n", &n, &pos) == 1 && optarg[pos] == 0) {
+          minmatch = (uint32_t) n;
+        } else {
+          error3 ("-Q %s: invalid success criterium\n", optarg);
+        }
+        break;
+      }
+      case 'X': extended_stats = true; break;
+      case 'R': {
+        tref = 0;
+        if (sscanf (optarg, "%"SCNd64"%n", &tref, &pos) != 1 || optarg[pos] != 0)
+          error3 ("-R %s: invalid reference time\n", optarg);
+        break;
+      }
+      case 'h': default: usage (); break;
     }
   }
 
@@ -1931,7 +2030,7 @@ int main (int argc, char *argv[])
   if (nkeyvals == 0)
     nkeyvals = 1;
   if (topicsel == OU && nkeyvals != 1)
-    error3 ("-n%u invalid: topic OU has no key\n", nkeyvals);
+    error3 ("-n %u invalid: topic OU has no key\n", nkeyvals);
   if (topicsel != KS && baggagesize != 0)
     error3 ("size %"PRIu32" invalid: only topic KS has a sequence\n", baggagesize);
   if (baggagesize != 0 && baggagesize < 12)
@@ -1940,7 +2039,7 @@ int main (int argc, char *argv[])
     baggagesize -= 12;
 
   struct record_netload_state *netload_state;
-  if (netload_bw <= 0)
+  if (netload_bw < 0)
     netload_state = NULL;
   else if ((netload_state = record_netload_new (netload_if, netload_bw)) == NULL)
     error3 ("can't get network utilization information for device %s\n", netload_if);
@@ -2004,7 +2103,7 @@ int main (int argc, char *argv[])
     snprintf (tpname_ping, sizeof (tpname_ping), "DDSPerf%cPing%s", reliable ? 'R' : 'U', tp_suf);
     snprintf (tpname_pong, sizeof (tpname_pong), "DDSPerf%cPong%s", reliable ? 'R' : 'U', tp_suf);
     qos = dds_create_qos ();
-    dds_qset_reliability (qos, reliable ? DDS_RELIABILITY_RELIABLE : DDS_RELIABILITY_BEST_EFFORT, DDS_SECS (1));
+    dds_qset_reliability (qos, reliable ? DDS_RELIABILITY_RELIABLE : DDS_RELIABILITY_BEST_EFFORT, DDS_SECS (10));
     if ((tp_data = dds_create_topic (dp, tp_desc, tpname_data, qos, NULL)) < 0)
       error2 ("dds_create_topic(%s) failed: %d\n", tpname_data, (int) tp_data);
     if ((tp_ping = dds_create_topic (dp, tp_desc, tpname_ping, qos, NULL)) < 0)
@@ -2017,15 +2116,24 @@ int main (int argc, char *argv[])
   /* participants reader must exist before the "publication matched" or "subscription matched"
      listener is invoked, or it won't be able to get the details (FIXME: even the DDS spec
      has convenience functions for that ...) */
-  listener = dds_create_listener (NULL);
-  dds_lset_data_available (listener, participant_data_listener);
-  if ((rd_participants = dds_create_reader (dp, DDS_BUILTIN_TOPIC_DCPSPARTICIPANT, NULL, listener)) < 0)
+  if ((rd_participants = dds_create_reader (dp, DDS_BUILTIN_TOPIC_DCPSPARTICIPANT, NULL, NULL)) < 0)
     error2 ("dds_create_reader(participants) failed: %d\n", (int) rd_participants);
-  dds_delete_listener (listener);
   if ((rd_subscriptions = dds_create_reader (dp, DDS_BUILTIN_TOPIC_DCPSSUBSCRIPTION, NULL, NULL)) < 0)
     error2 ("dds_create_reader(subscriptions) failed: %d\n", (int) rd_subscriptions);
   if ((rd_publications = dds_create_reader (dp, DDS_BUILTIN_TOPIC_DCPSPUBLICATION, NULL, NULL)) < 0)
     error2 ("dds_create_reader(publications) failed: %d\n", (int) rd_publications);
+
+  /* Set DATA_AVAILABLE listener on participant later: it has the nasty habit of potentially
+     triggering before the reader is accessible to the application via its handle. Furthermore,
+     upon matching a participant, a new writer is created that gets a publication_matched
+     listener, which in turn depends on rd_subscriptions. */
+  listener = dds_create_listener (NULL);
+  dds_lset_data_available (listener, participant_data_listener);
+  dds_set_listener (rd_participants, listener);
+  dds_delete_listener (listener);
+  /* then there is the matter of data arriving prior to setting the listener ... this state
+     of affairs is undoubtedly a bug */
+  participant_data_listener (rd_participants, NULL);
 
   /* stats writer always exists, reader only when we were requested to collect & print stats */
   qos = dds_create_qos ();
@@ -2116,20 +2224,6 @@ int main (int argc, char *argv[])
   if ((rc = dds_waitset_attach (ws, termcond, 0)) < 0)
     error2 ("dds_waitset_attach(main, termcond) failed: %d\n", (int) rc);
 
-  /* I hate Unix signals in multi-threaded processes ... */
-#ifdef _WIN32
-  signal (SIGINT, signal_handler);
-#elif !DDSRT_WITH_FREERTOS
-  sigemptyset (&sigset);
-  sigaddset (&sigset, SIGINT);
-  sigaddset (&sigset, SIGTERM);
-  sigprocmask (SIG_BLOCK, &sigset, &osigset);
-  ddsrt_thread_create (&sigtid, "sigthread", &attr, sigthread, &sigset);
-#if defined __APPLE__ || defined __linux
-  signal (SIGXFSZ, sigxfsz_handler);
-#endif
-#endif
-
   /* Make publisher & subscriber thread arguments and start the threads we
      need (so what if we allocate memory for reading data even if we don't
      have a reader or will never really be receiving data) */
@@ -2150,6 +2244,34 @@ int main (int argc, char *argv[])
   memset (&subtid, 0, sizeof (subtid));
   memset (&subpingtid, 0, sizeof (subpingtid));
   memset (&subpongtid, 0, sizeof (subpongtid));
+
+  /* Just before starting the threads but after setting everything up, wait for
+     the required number of peers, if requested to do so */
+  if (initmaxwait > 0)
+  {
+    dds_time_t tnow = dds_time ();
+    const dds_time_t tendwait = tnow + (dds_duration_t) (initmaxwait * 1e9);
+    ddsrt_mutex_lock (&disc_lock);
+    while (matchcount < minmatch && tnow < tendwait)
+    {
+      ddsrt_mutex_unlock (&disc_lock);
+      dds_sleepfor (DDS_MSECS (100));
+      ddsrt_mutex_lock (&disc_lock);
+      tnow = dds_time ();
+    }
+    const bool ok = (matchcount >= minmatch);
+    if (!ok)
+    {
+      /* set minmatch to an impossible value to avoid a match occurring between now and
+         the determining of the exit status from causing a successful return */
+      minmatch = UINT32_MAX;
+    }
+    ddsrt_mutex_unlock (&disc_lock);
+    if (!ok)
+      goto err_minmatch_wait;
+    dds_sleepfor (DDS_MSECS (100));
+  }
+
   if (pub_rate > 0)
     ddsrt_thread_create (&pubtid, "pub", &attr, pubthread, NULL);
   if (subthread_func != 0)
@@ -2166,7 +2288,7 @@ int main (int argc, char *argv[])
   const bool pingpong_waitset = (ping_intv != DDS_NEVER && ignorelocal == DDS_IGNORELOCAL_NONE) || pingpongmode == SM_WAITSET;
   if (pingpong_waitset)
   {
-    ddsrt_thread_create (&subpingtid, "ping", &attr, subpingthread_waitset, &subarg_pong);
+    ddsrt_thread_create (&subpingtid, "ping", &attr, subpingthread_waitset, &subarg_ping);
     ddsrt_thread_create (&subpongtid, "pong", &attr, subpongthread_waitset, &subarg_pong);
   }
   else
@@ -2178,6 +2300,50 @@ int main (int argc, char *argv[])
   /* Have to do this after all threads have been created because it caches the list */
   struct record_cputime_state *cputime_state;
   cputime_state = record_cputime_new (wr_stat);
+
+  struct dds_stats stats;
+  const struct dds_stat_keyvalue dummy_u64 = { .name = "", .kind = DDS_STAT_KIND_UINT64, .u.u64 = 0 };
+  const struct dds_stat_keyvalue dummy_u32 = { .name = "", .kind = DDS_STAT_KIND_UINT32, .u.u32 = 0 };
+  stats.substat = dds_create_statistics (rd_data);
+  stats.discarded_bytes = dds_lookup_statistic (stats.substat, "discarded_bytes");
+  stats.pubstat = dds_create_statistics (wr_data);
+  stats.rexmit_bytes = dds_lookup_statistic (stats.pubstat, "rexmit_bytes");
+  stats.time_rexmit = dds_lookup_statistic (stats.pubstat, "time_rexmit");
+  stats.time_throttle = dds_lookup_statistic (stats.pubstat, "time_throttle");
+  stats.throttle_count = dds_lookup_statistic (stats.pubstat, "throttle_count");
+  if (stats.discarded_bytes == NULL)
+    stats.discarded_bytes = &dummy_u64;
+  if (stats.rexmit_bytes == NULL)
+    stats.rexmit_bytes = &dummy_u64;
+  if (stats.time_rexmit == NULL)
+    stats.time_rexmit = &dummy_u64;
+  if (stats.time_throttle == NULL)
+    stats.time_throttle = &dummy_u64;
+  if (stats.throttle_count == NULL)
+    stats.throttle_count = &dummy_u32;
+  if (stats.discarded_bytes->kind != DDS_STAT_KIND_UINT64 ||
+      stats.rexmit_bytes->kind != DDS_STAT_KIND_UINT64 ||
+      stats.time_rexmit->kind != DDS_STAT_KIND_UINT64 ||
+      stats.time_throttle->kind != DDS_STAT_KIND_UINT64 ||
+      stats.throttle_count->kind != DDS_STAT_KIND_UINT32)
+  {
+    abort ();
+  }
+
+  /* I hate Unix signals in multi-threaded processes ... */
+#ifdef _WIN32
+  signal (SIGINT, signal_handler);
+#elif !DDSRT_WITH_FREERTOS
+  sigemptyset (&sigset);
+  sigaddset (&sigset, SIGHUP);
+  sigaddset (&sigset, SIGINT);
+  sigaddset (&sigset, SIGTERM);
+  sigprocmask (SIG_BLOCK, &sigset, &osigset);
+  ddsrt_thread_create (&sigtid, "sigthread", &attr, sigthread, &sigset);
+#if defined __APPLE__ || defined __linux
+  signal (SIGXFSZ, sigxfsz_handler);
+#endif
+#endif
 
   /* Run until time limit reached or a signal received.  (The time calculations
      ignore the possibility of overflow around the year 2260.) */
@@ -2255,12 +2421,17 @@ int main (int argc, char *argv[])
     tnow = dds_time ();
     if (tnext <= tnow)
     {
-      print_stats (tref, tnow, tlast, cputime_state, netload_state);
+      bool output;
+      output = print_stats (tref, tnow, tlast, cputime_state, netload_state, &stats);
       tlast = tnow;
       if (tnow > tnext + DDS_MSECS (500))
         tnext = tnow + DDS_SECS (1);
       else
         tnext += DDS_SECS (1);
+
+      if (rss_init == 0.0 && matchcount >= minmatch && output)
+        rss_init = record_cputime_read_rss (cputime_state);
+      rss_final = record_cputime_read_rss (cputime_state);
     }
 
     /* If a "real" ping doesn't result in the expected number of pongs within a reasonable
@@ -2273,6 +2444,9 @@ int main (int argc, char *argv[])
       maybe_send_new_ping (tnow, &tnextping);
     }
   }
+
+  dds_delete_statistics (stats.pubstat);
+  dds_delete_statistics (stats.substat);
   record_netload_free (netload_state);
   record_cputime_free (cputime_state);
 
@@ -2303,6 +2477,7 @@ int main (int argc, char *argv[])
     ddsrt_thread_join (subpongtid, NULL);
   }
 
+err_minmatch_wait:
   /* stop the listeners before deleting the readers: otherwise they may
      still try to access a reader that has already become inaccessible
      (not quite good, but ...) */
@@ -2328,8 +2503,13 @@ int main (int argc, char *argv[])
   dds_delete (rd_data);
 
   uint64_t nlost = 0;
+  bool received_ok = true;
   for (uint32_t i = 0; i < eseq_admin.nph; i++)
+  {
     nlost += eseq_admin.stats[i].nlost;
+    if (eseq_admin.stats[i].nrecv < (uint64_t) min_received)
+      received_ok = false;
+  }
   fini_eseq_admin (&eseq_admin);
   subthread_arg_fini (&subarg_data);
   subthread_arg_fini (&subarg_ping);
@@ -2341,8 +2521,13 @@ int main (int argc, char *argv[])
   ddsrt_mutex_destroy (&pubstat_lock);
   hist_free (pubstat_hist);
   free (pongwr);
+  bool roundtrips_ok = true;
   for (uint32_t i = 0; i < npongstat; i++)
+  {
+    if (pongstat[i].totcnt < min_roundtrips)
+      roundtrips_ok = false;
     free (pongstat[i].raw);
+  }
   free (pongstat);
 
   bool ok = true;
@@ -2363,12 +2548,27 @@ int main (int argc, char *argv[])
 
   if (matchcount < minmatch)
   {
-    printf ("[%"PRIdPID"] error: too few matching participants (%"PRIu32" instead of %"PRIu32")\n", ddsrt_getpid (), matchcount, minmatch);
+    printf ("[%"PRIdPID"] error: too few matching participants (%"PRIu32")\n", ddsrt_getpid (), matchcount);
     ok = false;
   }
   if (nlost > 0 && (reliable && histdepth == 0))
   {
     printf ("[%"PRIdPID"] error: %"PRIu64" samples lost\n", ddsrt_getpid (), nlost);
+    ok = false;
+  }
+  if (!roundtrips_ok)
+  {
+    printf ("[%"PRIdPID"] error: too few roundtrips for some peers\n", ddsrt_getpid ());
+    ok = false;
+  }
+  if (!received_ok)
+  {
+    printf ("[%"PRIdPID"] error: too few samples received from some peers\n", ddsrt_getpid ());
+    ok = false;
+  }
+  if (rss_check && rss_final >= rss_init * rss_factor + rss_term)
+  {
+    printf ("[%"PRIdPID"] error: RSS grew too much (%f -> %f)\n", ddsrt_getpid (), rss_init, rss_final);
     ok = false;
   }
   return ok ? 0 : 1;
