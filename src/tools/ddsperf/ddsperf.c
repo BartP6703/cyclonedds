@@ -1447,8 +1447,10 @@ static bool print_stats (dds_time_t tref, dds_time_t tnow, dds_time_t tprev, str
               (double) nrecv10s * 1e6 / (10 * dt), (double) nrecv10s_bytes * 8 * 1e3 / (10 * dt));
       if (file != NULL)
       {
-        fprintf (file, "%"PRId64",%s,%"PRIdPID",%.3f,%"PRIu32",%.2f,%.2f\n",
-                 tnow, hostname, pid, ts, last_size, (double) nrecv_bytes * 8 * 1e3 / dt, (double) nrecv10s_bytes * 8 * 1e3 / (10 * dt));
+        int64_t tsec = (int64_t)(tnow / 1000000000);
+        int64_t nsec = (int64_t)(tnow % 1000000000);
+        fprintf (file, "%"PRId64".%06"PRId64",%s,%"PRIdPID",%.3f,%"PRIu32",%.2f,%.2f\n",
+                 tsec, nsec / 1000, hostname, pid, ts, last_size, (double) nrecv_bytes * 8 * 1e3 / dt, (double) nrecv10s_bytes * 8 * 1e3 / (10 * dt));
       }
       output = true;
     }
